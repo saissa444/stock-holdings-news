@@ -1,0 +1,16 @@
+{
+  "name": "持股新聞",
+  "short_name": "持股新聞",
+  "description": "我的台股、美股持倉與每日新聞",
+  "lang": "zh-Hant-TW",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#18284A",
+  "theme_color": "#18284A",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
