@@ -211,15 +211,54 @@ async function setupRoutes(ctx) {
     assert.ok(groups[0] === '今天', groups.join());
     const all = await page.$$eval('#newsList .nitem', a => a.length);
     await page.screenshot({ path: OUT + '/06-news-iphone.png', fullPage: true });
-    await page.click('.chip:has-text("環球晶")');
+    await page.click('#chips .chip:has-text("環球晶")');
     assert.match(await page.textContent('#newsList'), /放寬到 7 天/);
-    await page.click('.chip:has-text("Apple")');
+    await page.click('#chips .chip:has-text("Apple")');
     assert.ok(await page.$$eval('#newsList .tag', t => t.some(x => x.textContent === '英文')));
     const aaplLinks = await page.$$eval('#newsList a', a => a.map(x => [x.target, x.rel]));
     assert.ok(aaplLinks.every(([t, r]) => t === '_blank' && r.includes('noopener')));
-    await page.click('.chip:has-text("全部")');
+    await page.click('#chips .chip:has-text("全部")');
     assert.strictEqual(await page.$$eval('#newsList .nitem', a => a.length), all);
     await page.click('#tabHold');
+  });
+
+  await t('持股列：7 天內的時程顯示徽章（台積電 5 天後法說、Apple 4 天後財報），10 天後的不顯示', async () => {
+    await page.waitForFunction(() => document.querySelector('#eventsUpdated') && /更新於/.test(document.querySelector('#eventsUpdated').textContent));
+    const badge = async (code) => page.$eval(`.hrow:has(.hcode:text-is("${code}"))`, r => { const b = r.querySelector('.ev-badge'); return b ? b.textContent : null; }).catch(() => null);
+    assert.strictEqual(await badge('2330'), '5天後法說');
+    assert.strictEqual(await badge('AAPL'), '4天後財報');
+    assert.strictEqual(await badge('0050'), null);
+  });
+
+  await t('時程頁：分組、法說會時間地點、除息預計領取金額、上櫃權息、美股盤後與預估區間、已過標示', async () => {
+    await page.click('#tabEvents');
+    await page.waitForSelector('#eventsList .ev');
+    const txt = await page.textContent('#eventsList');
+    assert.match(txt, /台積電 法說會.*14:00.*線上法說會/);
+    assert.match(txt, /元大台灣50 除息現金股利 1\.00 元／股，預計領 NT\$1,500/);
+    assert.match(txt, /環球晶 除權息現金股利 4\.50 元／股，預計領 NT\$450.*每千股配 50 股/);
+    assert.match(txt, /Apple 財報公布盤後公布（台灣時間隔天清晨）/);
+    assert.match(txt, /NVIDIA 財報公布預估 \d+\/\d+～\d+\/\d+ 之間/);
+    assert.match(txt, /Apple 除息已過上次配息 US\$0\.26／股，預計約 US\$2\.60（約 NT\$80）/);
+    assert.match(txt, /第三季財報公告期限|月營收公布期限/);
+    const dl = await page.$$eval('#eventsList .ev', evs => evs.filter(e => e.querySelector('.t-deadline')).map(e => e.querySelector('.evmeta').textContent));
+    assert.ok(dl.length && dl.every(m => !m.includes('元大台灣50')), 'ETF 不該出現在公告期限');
+    const days = await page.$$eval('.evday span:first-child', d => d.map(x => x.textContent));
+    assert.ok(days.length >= 5);
+    await page.screenshot({ path: OUT + '/11-events-iphone.png', fullPage: true });
+    await page.click('#evChips .chip:has-text("財報")');
+    const types = await page.$$eval('#eventsList .evtag', t => [...new Set(t.map(x => x.textContent))]);
+    assert.deepStrictEqual(types, ['財報']);
+    await page.click('#evChips .chip:has-text("全部")');
+  });
+
+  await t('個股明細顯示近期時程', async () => {
+    await page.click('#tabHold');
+    await page.click('.hrow:has(.hcode:text-is("2330"))');
+    await page.waitForSelector('#dlgDetail[open]');
+    assert.ok(await page.isVisible('#detEventsWrap'));
+    assert.match(await page.textContent('#detEvents'), /法說會/);
+    await page.click('#dlgDetail [data-close]');
   });
 
   await t('編輯：改股數後損益更新；試算表同步', async () => {
@@ -237,6 +276,9 @@ async function setupRoutes(ctx) {
     await page.click('#btnDelete');
     await page.waitForFunction(() => ![...document.querySelectorAll('.hcode')].some(e => e.textContent === '6488'));
     assert.ok(!env.sheets['持倉'].rows.some(r => r[0] === '6488'));
+    await page.click('#tabEvents');
+    await page.waitForFunction(() => !/環球晶/.test(document.querySelector('#eventsList').textContent));
+    await page.click('#tabHold');
   });
 
   await t('排序：依今日漲跌', async () => {

@@ -98,7 +98,8 @@ main{max-width:1180px;margin:0 auto;padding:12px 12px calc(var(--sab) + 90px)}
 @media (min-width:960px){
   .tabs{display:none}
   .cols{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:16px;align-items:start}
-  #panel-hold,#panel-news{display:block !important}
+  #panel-hold,#panel-news,#panel-events{display:block !important}
+  .col-left{display:flex;flex-direction:column;gap:16px;min-width:0}
   #panel-news{position:sticky;top:12px;max-height:calc(100vh - 24px);display:flex !important;flex-direction:column}
   #panel-news .news-scroll{overflow:auto}
 }
@@ -134,6 +135,21 @@ main{max-width:1180px;margin:0 auto;padding:12px 12px calc(var(--sab) + 90px)}
 .nmeta{font-size:12.5px;color:var(--muted);display:flex;gap:10px;flex-wrap:wrap}
 .nmeta .stk{color:var(--accent);font-weight:600}
 .empty{padding:28px 18px;text-align:center;color:var(--muted)}
+/* 時程 */
+:root{--ev-conf:#2B4C8C;--ev-earnings:#6A43B5;--ev-exdiv:#9A6200;--ev-deadline:#6B7486}
+@media (prefers-color-scheme:dark){:root{--ev-conf:#8FB0F0;--ev-earnings:#B9A0F0;--ev-exdiv:#E5B45A;--ev-deadline:#93A0B8}}
+.evday{display:flex;justify-content:space-between;font-size:13px;font-weight:600;color:var(--muted);padding:12px 14px 4px}
+.evday.today{color:var(--accent)}
+.ev{display:grid;grid-template-columns:56px minmax(0,1fr);gap:10px;padding:8px 14px 12px;border-bottom:1px solid var(--line)}
+.ev.past{opacity:.55}
+.evtag{align-self:start;text-align:center;font-size:12px;font-weight:600;line-height:22px;border-radius:6px;border:1px solid currentColor}
+.t-conf{color:var(--ev-conf)} .t-earnings{color:var(--ev-earnings)} .t-exdiv{color:var(--ev-exdiv)} .t-deadline{color:var(--ev-deadline)}
+.evtitle{font-weight:600;font-size:15.5px;line-height:1.4}
+.evmeta{font-size:13.5px;color:var(--text);margin-top:2px}
+.evmeta .num{font-size:15px}
+.evdetail{font-size:13px;color:var(--muted);margin-top:3px;white-space:pre-line;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.evnote{font-size:12px;color:var(--muted);padding:12px 14px 14px;line-height:1.6}
+.tag.ev-badge{background:transparent;border:1px solid currentColor;font-weight:600}
 .empty p{margin:0 0 12px}
 
 /* 按鈕 */
@@ -215,8 +231,10 @@ dialog::backdrop{background:rgba(10,16,30,.45)}
   <div class="tabs" role="tablist">
     <button role="tab" id="tabHold" aria-selected="true" aria-controls="panel-hold">持倉</button>
     <button role="tab" id="tabNews" aria-selected="false" aria-controls="panel-news">新聞<span id="newsCount"></span></button>
+    <button role="tab" id="tabEvents" aria-selected="false" aria-controls="panel-events">時程</button>
   </div>
   <div class="cols">
+    <div class="col-left">
     <section class="panel" id="panel-hold" role="tabpanel" aria-labelledby="tabHold">
       <div class="panel-head">
         <h2>持倉</h2>
@@ -230,6 +248,13 @@ dialog::backdrop{background:rgba(10,16,30,.45)}
       </div>
       <div id="holdList"></div>
     </section>
+    <section class="panel hidden" id="panel-events" role="tabpanel" aria-labelledby="tabEvents">
+      <div class="panel-head"><h2>重要時程</h2><span class="hsub" id="eventsUpdated"></span></div>
+      <div class="chips" id="evChips" role="toolbar" aria-label="篩選時程類型"></div>
+      <div id="eventsList"></div>
+      <div class="evnote">公告期限是法規規定的最晚日期，遇週末會順延，但無法得知國定假日與個別公司延期；多數公司會提早公布。美股財報日與配息以公司正式公告為準。</div>
+    </section>
+    </div>
     <section class="panel hidden" id="panel-news" role="tabpanel" aria-labelledby="tabNews">
       <div class="panel-head"><h2>每日新聞</h2><span class="hsub" id="newsUpdated"></span></div>
       <div class="chips" id="chips" role="toolbar" aria-label="篩選股票"></div>
@@ -288,6 +313,7 @@ dialog::backdrop{background:rgba(10,16,30,.45)}
     <div class="dlg-body">
       <div class="stats" id="detStats"></div>
       <div class="hsub" id="detQuote"></div>
+      <div id="detEventsWrap" class="hidden"><div class="sect">近期時程</div><div id="detEvents"></div></div>
       <div class="sect">相關新聞</div>
       <div class="det-news" id="detNews"></div>
     </div>
@@ -367,6 +393,9 @@ let cfg = Object.assign({}, DEFAULTS, LS.get('cfg', {}));
 let data = LS.get('data', null);      // {holdings, quotes, fx, fetchedAt}
 let news = LS.get('news', null);      // {news, days, fetchedAt}
 let lastFx = LS.get('fx', null);      // 最近一次成功的匯率
+let events = LS.get('events', null);  // {events, sources, today, fetchedAt}
+let evFilter = 'all';
+let loadingEvents = false, eventsError = null, lastEventsAt = 0;
 let newsFilter = 'all';
 let loadingData = false, loadingNews = false;
 let dataError = null, dataErrorCode = null, newsError = null;
@@ -571,7 +600,10 @@ function renderHoldings(c) {
     const h = r.h;
     const isUS = h.market === 'US';
     const cur = isUS ? 'US$' : '';
-    const top = el('div', { class: 'hname' }, el('span', { class: 'nm' }, r.name), el('span', { class: 'hcode' }, h.code), isUS ? el('span', { class: 'tag' }, '美股') : null);
+    const ne = nearEvent(h.code);
+    const neLabel = ne ? relDay(isoDays(tpeTodayIso(), ne.date)).replace(' ', '') + (ne.type === 'exdiv' ? evTypeOf(ne) : EV_TYPES[ne.type].short) : '';
+    const top = el('div', { class: 'hname' }, el('span', { class: 'nm' }, r.name), el('span', { class: 'hcode' }, h.code), isUS ? el('span', { class: 'tag' }, '美股') : null,
+      ne ? el('span', { class: 'tag ev-badge t-' + ne.type, title: '近期時程' }, neLabel) : null);
     let price, chg, sub, pnlLine;
     if (r.q) {
       price = el('div', { class: 'hprice num ' + cls(r.dayChg) }, cur + fmtPrice(r.q.price));
@@ -668,6 +700,117 @@ function renderNews() {
   });
 }
 
+/* ================= 畫面：時程 ================= */
+const EV_TYPES = {
+  conf: { label: '法說會', short: '法說' },
+  earnings: { label: '財報', short: '財報' },
+  exdiv: { label: '除權息', short: '除息' },
+  deadline: { label: '公告期限', short: '期限' },
+};
+function tpeTodayIso() {
+  // 用台北日期判斷「今天」，在國外或電腦時區設錯也不會算錯天數
+  const p = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Taipei', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+  return p.slice(0, 10);
+}
+const isoDays = (a, b) => Math.round((Date.parse(b + 'T00:00:00Z') - Date.parse(a + 'T00:00:00Z')) / 864e5);
+function relDay(n) {
+  if (n === 0) return '今天';
+  if (n === 1) return '明天';
+  if (n === 2) return '後天';
+  return n > 0 ? n + ' 天後' : -n + ' 天前';
+}
+function mdw(iso) {
+  const d = new Date(iso + 'T00:00:00Z');
+  return (d.getUTCMonth() + 1) + '月' + d.getUTCDate() + '日（週' + '日一二三四五六'[d.getUTCDay()] + '）';
+}
+const md = (iso) => iso ? (+iso.slice(5, 7)) + '/' + (+iso.slice(8, 10)) : '';
+function stockNames() {
+  const m = {};
+  if (data) data.holdings.forEach(h => { const q = data.quotes[h.code]; m[h.code] = h.name || (q && !q.error && shortName(q.name)) || h.code; });
+  return m;
+}
+function evTypeOf(e) { return e.type === 'exdiv' ? (e.title === '除權' ? '除權' : e.title === '除權息' ? '除權息' : '除息') : EV_TYPES[e.type].label; }
+function eventItem(e, names, today, showStock) {
+  const n = isoDays(today, e.date);
+  const past = (e.dateEnd || e.date) < today;
+  const h = data && data.holdings.find(x => x.code === e.codes[0]);
+  const stock = e.type === 'deadline' ? '' : (names[e.codes[0]] || e.codes[0]);
+  const title = e.type === 'deadline' ? e.title : (showStock ? stock + ' ' : '') + (e.type === 'conf' ? '法說會' : e.type === 'earnings' ? '財報公布' : e.title);
+  const meta = [];
+  if (e.type === 'conf') {
+    if (e.time) meta.push(e.time);
+    if (e.place) meta.push(e.place);
+  } else if (e.type === 'earnings') {
+    if (e.dateEnd) meta.push('預估 ' + md(e.date) + '～' + md(e.dateEnd) + ' 之間');
+    else if (e.timing) meta.push(e.timing + '公布（台灣時間' + (e.timing === '盤後' ? '隔天清晨' : e.timing === '盤前' ? '當天晚上' : '當天深夜') + '）');
+    else meta.push('公布時間未定');
+    if (e.estimate && !e.dateEnd) meta.push('日期為預估');
+  } else if (e.type === 'exdiv') {
+    if (e.currency === 'TWD') {
+      if (e.cash) {
+        const amt = h ? e.cash * h.shares : null;
+        meta.push(el('span', null, '現金股利 ', el('span', { class: 'num' }, fmtPrice(e.cash)), ' 元／股' + (amt ? '，預計領 ' : ''), amt ? el('span', { class: 'num' }, 'NT$' + NF0.format(Math.round(amt))) : null));
+      }
+      if (e.stockRatio) meta.push('每千股配 ' + NF0.format(Math.round(e.stockRatio * 1000)) + ' 股');   // 無償配股率是每股配幾股
+      if (!e.cash && !e.stockRatio) meta.push('金額待公告');
+    } else {
+      if (e.cash) {
+        const amt = h ? e.cash * h.shares : null;
+        const fx = (data && data.fx && data.fx.rate) || (lastFx && lastFx.rate);
+        meta.push(el('span', null, '上次配息 US$' + fmtPrice(e.cash) + '／股' + (amt ? '，預計約 ' : ''), amt ? el('span', { class: 'num' }, 'US$' + NF2.format(amt)) : null, amt && fx ? '（約 NT$' + NF0.format(Math.round(amt * fx)) + '）' : ''));
+      }
+      if (e.payDate) meta.push('發放日 ' + md(e.payDate));
+    }
+  } else if (e.type === 'deadline') {
+    meta.push('持股：' + e.codes.map(c => names[c] || c).join('、'));
+  }
+  const metaEl = el('div', { class: 'evmeta' });
+  meta.forEach((m, i) => { if (i) metaEl.append('　'); metaEl.append(m); });
+  const detail = e.type === 'conf' || e.type === 'deadline' || e.type === 'earnings' ? (e.type === 'earnings' ? '' : e.detail) : '';
+  return el('div', { class: 'ev' + (past ? ' past' : '') },
+    el('span', { class: 'evtag t-' + e.type }, evTypeOf(e)),
+    el('div', null,
+      el('div', { class: 'evtitle' }, title, past ? el('span', { class: 'tag' }, '已過') : null),
+      meta.length ? metaEl : null,
+      detail ? el('div', { class: 'evdetail' }, detail) : null));
+}
+function renderEvents() {
+  const list = $('#eventsList'), chips = $('#evChips');
+  list.replaceChildren(); chips.replaceChildren();
+  $('#eventsUpdated').textContent = loadingEvents ? '更新中…' : events && events.fetchedAt ? '更新於 ' + fmtTime(events.fetchedAt) : '';
+  if (!cfg.url || !data) { list.append(el('div', { class: 'empty' }, el('p', null, cfg.url ? '讀取持倉後會顯示時程' : '設定連線後會顯示時程'))); return; }
+  if (!data.holdings.length) { list.append(el('div', { class: 'empty' }, el('p', null, '新增持股後，這裡會列出法說會、財報日與除權息'))); return; }
+  if (!events) { list.append(eventsError ? el('div', { class: 'notice err', style: 'margin:10px 14px' }, eventsError) : el('div', { class: 'empty' }, el('p', null, loadingEvents ? '正在整理時程…' : '尚未讀取時程'))); return; }
+  const today = tpeTodayIso();
+  const names = stockNames();
+  const held = new Set(data.holdings.map(h => h.code));
+  // 持倉剛刪掉、還沒重新讀取時程時，不顯示已不在持倉裡的公司
+  const all = events.events.map(e => Object.assign({}, e, { codes: e.codes.filter(c => held.has(c)) })).filter(e => e.codes.length);
+  const counts = {};
+  all.forEach(e => { counts[e.type] = (counts[e.type] || 0) + 1; });
+  const mk = (key, label) => el('button', { class: 'chip', type: 'button', 'aria-pressed': String(evFilter === key), onclick: () => { evFilter = key; renderEvents(); } }, label + (key !== 'all' ? ' ' + (counts[key] || 0) : ''));
+  chips.append(mk('all', '全部'), mk('conf', '法說會'), mk('earnings', '財報'), mk('exdiv', '除權息'), mk('deadline', '公告期限'));
+  if (eventsError) list.append(el('div', { class: 'notice err', style: 'margin:10px 14px' }, eventsError + (events ? '（目前顯示上次的資料）' : '')));
+  Object.values(events.sources || {}).forEach(st => { if (!st.ok) list.append(el('div', { class: 'notice warn', style: 'margin:10px 14px' }, st.detail + '，稍後重新整理。')); });
+  const shown = evFilter === 'all' ? all : all.filter(e => e.type === evFilter);
+  if (!shown.length) { list.append(el('div', { class: 'empty' }, el('p', null, '未來半年沒有找到' + (evFilter === 'all' ? '時程' : EV_TYPES[evFilter].label)))); return; }
+  let cur = null;
+  shown.forEach(e => {
+    if (e.date !== cur) {
+      cur = e.date;
+      const n = isoDays(today, e.date);
+      list.append(el('div', { class: 'evday' + (n === 0 ? ' today' : '') }, el('span', null, mdw(e.date)), el('span', null, relDay(n))));
+    }
+    list.append(eventItem(e, names, today, true));
+  });
+}
+/** 某檔股票 7 天內最近的一個時程（不含法定期限），給持股列顯示 */
+function nearEvent(code) {
+  if (!events) return null;
+  const today = tpeTodayIso();
+  return events.events.find(e => e.type !== 'deadline' && e.codes.includes(code) && e.date >= today && isoDays(today, e.date) <= 7) || null;
+}
+
 /* ================= 提示 ================= */
 function renderNotices(c) {
   const box = $('#notices'); box.replaceChildren();
@@ -684,7 +827,8 @@ function renderAll() {
   document.documentElement.classList.toggle('intl', cfg.color === 'intl');
   const c = compute();
   renderSummary(c); renderNotices(c); renderHoldings(c); renderNews();
-  $('#btnRefresh').classList.toggle('spin', loadingData || loadingNews);
+  $('#btnRefresh').classList.toggle('spin', loadingData || loadingNews || loadingEvents);
+  renderEvents();
   $('#sortSel').value = cfg.sort;
 }
 
@@ -713,9 +857,22 @@ async function refreshNews() {
   } catch (e) { newsError = '新聞讀取失敗：' + e.message; }
   finally { loadingNews = false; renderAll(); }
 }
+async function refreshEvents() {
+  if (!cfg.url || loadingEvents || !data) return;
+  if (!data.holdings.length) { events = { events: [], sources: {}, fetchedAt: Date.now() }; renderAll(); return; }
+  loadingEvents = true; renderAll();
+  try {
+    const ev = await call('GET', { action: 'events' });
+    events = ev; LS.set('events', events); eventsError = null; lastEventsAt = Date.now();
+  } catch (e) { eventsError = /未知的動作/.test(e.message) ? '後端還是舊版：請把新的 Code.gs 貼到 Apps Script，並在「管理部署作業」部署新版本' : '時程讀取失敗：' + e.message; }
+  finally { loadingEvents = false; renderAll(); }
+}
 async function refreshAll(force) {
   await refreshData();
-  if (force || Date.now() - lastNewsAt > 10 * 60e3) await refreshNews();
+  const jobs = [];
+  if (force || Date.now() - lastNewsAt > 10 * 60e3) jobs.push(refreshNews());
+  if (force || Date.now() - lastEventsAt > 3 * 3600e3) jobs.push(refreshEvents());
+  await Promise.all(jobs);
 }
 
 function marketOpen() {
@@ -817,7 +974,7 @@ $('#formEdit').addEventListener('submit', async (ev) => {
     closeDlg($('#dlgEdit'));
     toast(editing ? '已儲存變更' : '已新增 ' + ($('#fName').value.trim() || code));
     await refreshData();
-    refreshNews();
+    refreshNews(); refreshEvents();
   } catch (e) { showErr('#eForm', e.message); }
   finally { btn.disabled = false; btn.textContent = '儲存'; }
 });
@@ -850,6 +1007,18 @@ function openDetail(code) {
     stat('持有股數', fmtShares(r.h.shares) + ' 股');
     $('#detQuote').textContent = '';
   }
+  const de = $('#detEvents'); de.replaceChildren();
+  if (events) {
+    const today = tpeTodayIso(), names = stockNames();
+    const mine = events.events.filter(e => e.codes.includes(code) && (e.dateEnd || e.date) >= today).slice(0, 5);
+    mine.forEach(e => {
+      const it = eventItem(e, names, today, false);
+      it.style.paddingLeft = '0'; it.style.paddingRight = '0';
+      it.querySelector('.evtitle').prepend(md(e.date) + '　');
+      de.append(it);
+    });
+    $('#detEventsWrap').classList.toggle('hidden', !mine.length);
+  } else $('#detEventsWrap').classList.add('hidden');
   const dn = $('#detNews'); dn.replaceChildren();
   const n = news && news.news[code];
   if (!n) dn.append(el('p', { class: 'hsub' }, loadingNews ? '正在整理新聞…' : '還沒有這檔的新聞資料'));
@@ -870,6 +1039,7 @@ $('#btnDelete').addEventListener('click', async () => {
     await call('POST', null, { action: 'delete', code: h.code });
     closeDlg($('#dlgDetail')); toast('已刪除 ' + (h.name || h.code));
     await refreshData();
+    refreshEvents();
   } catch (e) { alert('刪除失敗：' + e.message); }
   finally { b.disabled = false; }
 });
@@ -932,7 +1102,7 @@ $('#formSettings').addEventListener('submit', async (ev) => {
   cfg = Object.assign({}, cfg, c, { fees: $('#sFees').checked, discount: disc, days: +$('#sDays').value, en: $('#sEn').checked, color: $('#sColor').value });
   LS.set('cfg', cfg);
   closeDlg($('#dlgSettings'));
-  if (changedConn) { data = null; news = null; LS.del('data'); LS.del('news'); dataError = null; dataErrorCode = null; }
+  if (changedConn) { data = null; news = null; events = null; LS.del('data'); LS.del('news'); LS.del('events'); dataError = null; dataErrorCode = null; }
   if (changedNews) { news = null; LS.del('news'); }
   renderAll();
   if (changedConn) await refreshAll(true);
@@ -945,15 +1115,16 @@ $('#btnRefresh').addEventListener('click', () => refreshAll(true));
 $('#fab').addEventListener('click', () => openEdit());
 $('#sortSel').addEventListener('change', e => { cfg.sort = e.target.value; LS.set('cfg', cfg); renderAll(); });
 function selectTab(which) {
-  const hold = which === 'hold';
-  $('#tabHold').setAttribute('aria-selected', String(hold));
-  $('#tabNews').setAttribute('aria-selected', String(!hold));
-  $('#panel-hold').classList.toggle('hidden', !hold);
-  $('#panel-news').classList.toggle('hidden', hold);
+  if (!['hold', 'news', 'events'].includes(which)) which = 'hold';
+  [['hold', '#tabHold', '#panel-hold'], ['news', '#tabNews', '#panel-news'], ['events', '#tabEvents', '#panel-events']].forEach(([k, tab, panel]) => {
+    $(tab).setAttribute('aria-selected', String(k === which));
+    $(panel).classList.toggle('hidden', k !== which);
+  });
   LS.set('tab', which);
 }
 $('#tabHold').addEventListener('click', () => selectTab('hold'));
 $('#tabNews').addEventListener('click', () => selectTab('news'));
+$('#tabEvents').addEventListener('click', () => selectTab('events'));
 
 /* ================= 啟動 ================= */
 (function init() {
@@ -965,7 +1136,7 @@ $('#tabNews').addEventListener('click', () => selectTab('news'));
     if (s && validUrl(s.url)) {
       const changed = s.url !== cfg.url || s.token !== cfg.token;
       cfg = Object.assign({}, cfg, s); LS.set('cfg', cfg);
-      if (changed) { data = null; news = null; LS.del('data'); LS.del('news'); }
+      if (changed) { data = null; news = null; events = null; LS.del('data'); LS.del('news'); LS.del('events'); }
       setTimeout(() => toast('已套用設定碼'), 300);
     }
   }

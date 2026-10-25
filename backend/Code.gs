@@ -7,6 +7,8 @@
  *   3. 美股報價：Yahoo Finance（query1 → query2 備援）
  *   4. 美元兌台幣匯率：Yahoo（TWD=X）→ open.er-api.com 備援
  *   5. 每檔股票的新聞：Google 新聞 RSS
+ *   6. 重要時程：台股法說會（公開資訊觀測站）、美股財報日與除息日（Yahoo）、
+ *      台股除權息（證交所／櫃買預告表）、台股財報與月營收法定公告期限
  *
  * 安裝：見 README。第一次請在編輯器執行 setup()，再「部署 → 新增部署作業 → 網頁應用程式」。
  */
@@ -14,11 +16,13 @@
 var SHEET_HOLD = '持倉';
 var SHEET_INFO = '說明';
 var HEADERS = ['代號', '市場', '名稱', '股數', '平均成本', '新聞關鍵字', '備註'];
-var VERSION = '1.0.0';
+var VERSION = '1.1.0';
 
 var CACHE_QUOTE_SEC = 15;
 var CACHE_FX_SEC = 1800;
 var CACHE_NEWS_SEC = 600;
+var CACHE_EVENTS_SEC = 10800;   // 時程 3 小時
+var CACHE_EVENTS_ERR_SEC = 600; // 有來源失敗時只快取 10 分鐘，稍後重試
 var UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36';
 
 /* ===================== 一次性設定 ===================== */
@@ -76,6 +80,7 @@ function doGet(e) {
       case 'data': return getData_();
       case 'news': return getNews_(String(p.codes || ''), p.days, p.en);
       case 'lookup': return lookup_(String(p.code || ''));
+      case 'events': return getEvents_();
       case 'diagnose': return diagnose_();
       case 'ping': return { version: VERSION };
       default: throw userError_('未知的動作：' + p.action);
@@ -618,6 +623,8 @@ function diagnose_() {
         var y = JSON.parse(body); var m = y.chart && y.chart.result && y.chart.result[0] && y.chart.result[0].meta; ok = !!(m && m.regularMarketPrice); detail = ok ? (m.symbol + ' ' + m.regularMarketPrice) : '沒有資料';
       } else if (ok && name.indexOf('Google 新聞') === 0) {
         var n = parseRss_(body, 'zh').length; ok = n > 0; detail = n + ' 則';
+      } else if (ok && name.indexOf('除權息預告') === 0) {
+        var arr = JSON.parse(body); ok = Array.isArray(arr); detail = ok ? (arr.length + ' 筆') : '格式不符';
       } else if (ok && name === '匯率備援') {
         var r = JSON.parse(body); ok = !!(r.rates && r.rates.TWD); detail = ok ? ('USD/TWD ' + r.rates.TWD) : '沒有資料';
       } else if (!ok) {
@@ -639,7 +646,378 @@ function diagnose_() {
       probe('Yahoo（美股）', 'https://query1.finance.yahoo.com/v8/finance/chart/AAPL?range=1d&interval=1d'),
       probe('Yahoo（匯率）', 'https://query1.finance.yahoo.com/v8/finance/chart/TWD%3DX?range=1d&interval=1d'),
       probe('匯率備援', 'https://open.er-api.com/v6/latest/USD'),
-      probe('Google 新聞', newsUrl_('台積電', 'zh', 1))
+      probe('Google 新聞', newsUrl_('台積電', 'zh', 1)),
+      probeMops_(),
+      probe('除權息預告（上市）', 'https://openapi.twse.com.tw/v1/exchangeReport/TWT48U_ALL'),
+      probe('除權息預告（上櫃）', 'https://www.tpex.org.tw/openapi/v1/tpex_exright_prepost'),
+      probeYahooCal_()
     ]
   };
+}
+
+/* ===================== 重要時程 ===================== */
+
+var FIN_HOLDINGS = ['2880', '2881', '2882', '2883', '2884', '2885', '2886', '2887', '2888', '2889', '2890', '2891', '2892', '5880'];
+var EVENT_PAST_DAYS = 7;      // 也列出最近 7 天已過的時程
+var EVENT_AHEAD_DAYS = 180;   // 往後看半年
+
+/** 台北時間的「今天」(UTC 00:00 的 Date，只用 getUTC* 讀) */
+function tpeToday_() {
+  var d = new Date(Date.now() + 8 * 3600e3);
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+}
+function ymd_(d) {
+  return d.getUTCFullYear() + '-' + ('0' + (d.getUTCMonth() + 1)).slice(-2) + '-' + ('0' + d.getUTCDate()).slice(-2);
+}
+function addDays_(d, n) { return new Date(d.getTime() + n * 86400e3); }
+/** 週六、週日順延到週一（國定假日無法得知，僅處理週末） */
+function nextWeekday_(d) {
+  var w = d.getUTCDay();
+  return w === 6 ? addDays_(d, 2) : w === 0 ? addDays_(d, 1) : d;
+}
+/** 民國日期 → YYYY-MM-DD。接受 1151030、115/10/30、115年10月30日、2026-10-30 */
+function rocToIso_(v) {
+  var s = String(v == null ? '' : v).trim();
+  var m = s.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})$/);
+  if (m) return m[1] + '-' + ('0' + m[2]).slice(-2) + '-' + ('0' + m[3]).slice(-2);
+  m = s.match(/^(\d{2,3})\D+(\d{1,2})\D+(\d{1,2})\D*$/);
+  if (!m) { var dg = s.replace(/\D/g, ''); if (dg.length === 7) m = [0, dg.slice(0, 3), dg.slice(3, 5), dg.slice(5, 7)]; }
+  if (!m) return null;
+  var y = +m[1] + 1911, mo = +m[2], da = +m[3];
+  if (mo < 1 || mo > 12 || da < 1 || da > 31) return null;
+  return y + '-' + ('0' + mo).slice(-2) + '-' + ('0' + da).slice(-2);
+}
+function inWindow_(iso, today) {
+  if (!iso) return false;
+  var t = Date.parse(iso + 'T00:00:00Z');
+  return t >= addDays_(today, -EVENT_PAST_DAYS).getTime() && t <= addDays_(today, EVENT_AHEAD_DAYS).getTime();
+}
+function isEtf_(code) { return /^0[0-2]/.test(code); }   // ETF（00xx）、REIT、ETN 沒有法說會與財報期限
+function cashNum_(v) {
+  var n = parseFloat(String(v == null ? '' : v).replace(/,/g, ''));
+  return isFinite(n) && n > 0 ? n : null;
+}
+
+/** 台股財報／月營收法定期限（全市場同一天，合併成一筆並列出受影響的持股） */
+function deadlineEvents_(twStocks, today) {
+  var out = [];
+  if (!twStocks.length) return out;
+  var normal = twStocks.filter(function (h) { return FIN_HOLDINGS.indexOf(h.code) < 0; }).map(function (h) { return h.code; });
+  var fin = twStocks.filter(function (h) { return FIN_HOLDINGS.indexOf(h.code) >= 0; }).map(function (h) { return h.code; });
+  var all = twStocks.map(function (h) { return h.code; });
+  var y0 = today.getUTCFullYear();
+  function push(y, mo, d, codes, title, detail) {
+    if (!codes.length) return;
+    var raw = new Date(Date.UTC(y, mo - 1, d));
+    var due = nextWeekday_(raw);
+    var iso = ymd_(due);
+    if (!inWindow_(iso, today)) return;
+    out.push({
+      id: 'dl:' + iso + ':' + title, type: 'deadline', date: iso, time: null, codes: codes, title: title,
+      detail: detail + (due.getTime() !== raw.getTime() ? '（' + (mo) + '/' + d + ' 遇週末順延）' : ''), source: '法規'
+    });
+  }
+  for (var y = y0; y <= y0 + 1; y++) {
+    for (var m = 1; m <= 12; m++) {
+      var pm = m === 1 ? 12 : m - 1;
+      push(y, m, 10, all, pm + ' 月營收公布期限', '上市櫃公司最晚於每月 10 日公布上月營收，多數公司會提早公布');
+    }
+    push(y, 3, 31, all, (y - 1912) + ' 年度財報公告期限', '年度財務報告最晚公告日');
+    push(y, 5, 15, normal, '第一季財報公告期限', '一般上市櫃公司 Q1 財報最晚公告日');
+    push(y, 8, 14, normal, '第二季財報公告期限', '一般上市櫃公司 Q2 財報最晚公告日');
+    push(y, 11, 14, normal, '第三季財報公告期限', '一般上市櫃公司 Q3 財報最晚公告日');
+    push(y, 5, 30, fin, '第一季財報公告期限（金控）', '金融控股公司 Q1 財報最晚公告日');
+    push(y, 8, 31, fin, '第二季財報公告期限（金控）', '金融控股公司 Q2 財報最晚公告日');
+    push(y, 11, 29, fin, '第三季財報公告期限（金控）', '金融控股公司 Q3 財報最晚公告日');
+  }
+  // 月營收每月都有，只列接下來 2 次，避免洗版
+  var todayIso = ymd_(today), revKept = 0;
+  out = out.filter(function (e) {
+    if (!/月營收/.test(e.title)) return true;
+    if (e.date < todayIso || revKept >= 2) return false;
+    revKept++; return true;
+  });
+  return out;
+}
+
+/** 把 HTML 表格拆成二維文字陣列 */
+function htmlTableRows_(html, tableId) {
+  var start = html.indexOf('id="' + tableId + '"');
+  if (start < 0) start = html.indexOf("id='" + tableId + "'");
+  if (start < 0) return null;
+  var end = html.indexOf('</table>', start);
+  var t = html.slice(start, end < 0 ? undefined : end);
+  var rows = [];
+  var trRe = /<tr[^>]*>([\s\S]*?)<\/tr>/gi, m;
+  while ((m = trRe.exec(t))) {
+    var cells = [];
+    var tdRe = /<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi, c;
+    while ((c = tdRe.exec(m[1]))) {
+      cells.push(c[1].replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, '')
+        .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+        .replace(/[ \t　]+/g, ' ').replace(/\s*\n\s*/g, '\n').trim());
+    }
+    if (cells.length) rows.push(cells);
+  }
+  return rows;
+}
+
+/** 台股法說會：公開資訊觀測站 t100sb02_1（舊版頁面），每檔查今年（11、12 月再查明年） */
+function mopsConfReq_(code, typek, rocYear) {
+  return {
+    url: 'https://mopsov.twse.com.tw/mops/web/ajax_t100sb02_1',
+    method: 'post',
+    payload: { encodeURIComponent: '1', step: '1', firstin: '1', off: '1', TYPEK: typek, year: String(rocYear), month: '', co_id: code },
+    muteHttpExceptions: true,
+    headers: { 'User-Agent': UA, 'Referer': 'https://mopsov.twse.com.tw/mops/web/t100sb02_1' }
+  };
+}
+function parseMopsConf_(html) {
+  if (/查無資料|查無所需資料/.test(html)) return [];
+  var rows = htmlTableRows_(html, 'myTable');
+  if (!rows || rows.length < 2) return null;     // null＝頁面格式不對（被擋或改版）
+  var head = rows[0];
+  function col(name, fallback) { var i = head.indexOf(name); return i >= 0 ? i : fallback; }
+  var cCode = col('公司代號', 0), cName = col('公司名稱', 1), cDate = col('召開法人說明會日期', 2),
+      cTime = col('召開法人說明會時間', 3), cPlace = col('召開法人說明會地點', 4), cSum = col('法人說明會擇要訊息', 5);
+  var out = [];
+  for (var i = 1; i < rows.length; i++) {
+    var r = rows[i];
+    var iso = rocToIso_(r[cDate]);
+    if (!iso || !/^\d/.test(r[cCode] || '')) continue;   // 第二列表頭或空列
+    out.push({ code: r[cCode], name: r[cName] || '', date: iso, time: (r[cTime] || '').trim(), place: (r[cPlace] || '').trim(), summary: (r[cSum] || '').trim() });
+  }
+  return out;
+}
+function confEvents_(stocks, quotes, today) {
+  var events = [], status = { ok: true, detail: '' };
+  if (!stocks.length) return { events: events, status: status };
+  var roc = today.getUTCFullYear() - 1911;
+  var years = today.getUTCMonth() >= 10 ? [roc, roc + 1] : [roc];
+  var reqs = [], meta = [];
+  stocks.forEach(function (h) {
+    var q = quotes[h.code];
+    var typeks = q && q.exchange === 'OTC' ? ['otc'] : q && q.exchange === 'TWSE' ? ['sii'] : ['sii', 'otc'];
+    typeks.forEach(function (tk) {
+      years.forEach(function (y) { reqs.push(mopsConfReq_(h.code, tk, y)); meta.push(h.code); });
+    });
+  });
+  var resps = [];
+  for (var i = 0; i < reqs.length; i += 6) {   // 觀測站有防爬限制，一次最多 6 個
+    try { resps = resps.concat(UrlFetchApp.fetchAll(reqs.slice(i, i + 6))); }
+    catch (e) { for (var k = i; k < Math.min(i + 6, reqs.length); k++) resps.push(null); }
+  }
+  var fails = 0, seen = {};
+  resps.forEach(function (res, idx) {
+    var list = null;
+    if (res && res.getResponseCode() === 200) {
+      try { list = parseMopsConf_(res.getContentText('UTF-8')); } catch (e) { list = null; }
+    }
+    if (list === null) { fails++; return; }
+    list.forEach(function (c) {
+      if (c.code !== meta[idx] || !inWindow_(c.date, today)) return;
+      var id = 'conf:' + c.code + ':' + c.date + ':' + c.time;
+      if (seen[id]) return; seen[id] = true;
+      events.push({ id: id, type: 'conf', date: c.date, time: /^\d{1,2}:\d{2}/.test(c.time) ? c.time.slice(0, 5) : null,
+        codes: [c.code], title: '法說會', place: c.place, detail: c.summary, source: '公開資訊觀測站' });
+    });
+  });
+  if (fails && fails === resps.length) status = { ok: false, detail: '公開資訊觀測站暫時無法連線，法說會資料抓不到' };
+  else if (fails) status = { ok: false, detail: '部分公司的法說會資料抓不到' };
+  return { events: events, status: status };
+}
+
+/** 台股除權息：證交所 TWT48U_ALL＋櫃買 tpex_exright_prepost */
+function exdivTwEvents_(holdings, today) {
+  var want = {};
+  holdings.forEach(function (h) { want[h.code] = h; });
+  var events = [], errs = [];
+  var srcs = [
+    { name: '上市', url: 'https://openapi.twse.com.tw/v1/exchangeReport/TWT48U_ALL', code: ['Code'], date: ['Date'], kind: ['Exdividend'], cash: ['CashDividend'], stock: ['StockDividendRatio'] },
+    { name: '上櫃', url: 'https://www.tpex.org.tw/openapi/v1/tpex_exright_prepost', code: ['SecuritiesCompanyCode', 'Code'], date: ['ExRrightsExDividendDate', 'ExRightsExDividendDate', 'Date'], kind: ['ExRrightsExDividend', 'ExRightsExDividend', 'Exdividend'], cash: ['CashDividend'], stock: ['StockDividendRatio'] }
+  ];
+  var resps;
+  try {
+    resps = UrlFetchApp.fetchAll(srcs.map(function (s) { return { url: s.url, muteHttpExceptions: true, headers: { 'User-Agent': UA, 'Accept': 'application/json' } }; }));
+  } catch (e) { return { events: [], status: { ok: false, detail: '除權息預告表暫時無法連線' } }; }
+  resps.forEach(function (res, i) {
+    var s = srcs[i];
+    var arr = null;
+    if (res.getResponseCode() === 200) { try { arr = JSON.parse(res.getContentText('UTF-8')); } catch (e) { arr = null; } }
+    if (!Array.isArray(arr)) { errs.push(s.name); return; }
+    function pick(row, keys) { for (var k = 0; k < keys.length; k++) if (row[keys[k]] != null) return row[keys[k]]; return null; }
+    arr.forEach(function (row) {
+      var code = String(pick(row, s.code) || '').trim().toUpperCase();
+      if (!want[code]) return;
+      var iso = rocToIso_(pick(row, s.date));
+      if (!inWindow_(iso, today)) return;
+      var kind = String(pick(row, s.kind) || '').trim();       // 權、息、權息
+      var cash = cashNum_(pick(row, s.cash));
+      var stockR = cashNum_(pick(row, s.stock));
+      var title = kind === '權' ? '除權' : kind === '權息' ? '除權息' : '除息';
+      events.push({ id: 'ex:' + code + ':' + iso + ':' + title, type: 'exdiv', date: iso, time: null, codes: [code], title: title,
+        cash: cash, stockRatio: stockR, currency: 'TWD', source: s.name === '上市' ? '證交所' : '櫃買中心' });
+    });
+  });
+  return { events: events, status: errs.length ? { ok: false, detail: errs.join('、') + '除權息預告表暫時抓不到' } : { ok: true, detail: '' } };
+}
+
+/** Yahoo 需要 cookie＋crumb 才能查財報日 */
+function yahooAuth_(force) {
+  var c = force ? null : cacheGet_('yh:auth');
+  if (c) return c;
+  var cookie = '';
+  ['https://fc.yahoo.com', 'https://finance.yahoo.com/'].some(function (u) {
+    try {
+      var r = UrlFetchApp.fetch(u, { muteHttpExceptions: true, followRedirects: false, headers: { 'User-Agent': UA } });
+      var h = r.getAllHeaders()['Set-Cookie'];
+      var list = Array.isArray(h) ? h : h ? [h] : [];
+      cookie = list.map(function (x) { return String(x).split(';')[0]; }).filter(function (x) { return /=/.test(x); }).join('; ');
+    } catch (e) { cookie = ''; }
+    return !!cookie;
+  });
+  if (!cookie) return null;
+  var crumb = '';
+  ['https://query1.finance.yahoo.com/v1/test/getcrumb', 'https://query2.finance.yahoo.com/v1/test/getcrumb'].some(function (u) {
+    try {
+      var r = UrlFetchApp.fetch(u, { muteHttpExceptions: true, headers: { 'User-Agent': UA, 'Cookie': cookie } });
+      var t = r.getContentText().trim();
+      if (r.getResponseCode() === 200 && t && t.length < 40 && !/[<{\s]/.test(t)) crumb = t;
+    } catch (e) { crumb = ''; }
+    return !!crumb;
+  });
+  if (!crumb) return null;
+  var auth = { cookie: cookie, crumb: crumb };
+  cachePut_('yh:auth', auth, 21600);
+  return auth;
+}
+
+function nyParts_(ms) {
+  // 美東時間（自動處理夏令時間：3 月第二個週日～11 月第一個週日）
+  var d = new Date(ms);
+  var y = d.getUTCFullYear();
+  function nthSunday(month, n) { var first = new Date(Date.UTC(y, month, 1)); var add = (7 - first.getUTCDay()) % 7 + (n - 1) * 7; return Date.UTC(y, month, 1 + add); }
+  var dstStart = nthSunday(2, 2) + 7 * 3600e3;   // 2:00 EST = 07:00 UTC
+  var dstEnd = nthSunday(10, 1) + 6 * 3600e3;    // 2:00 EDT = 06:00 UTC
+  var off = ms >= dstStart && ms < dstEnd ? -4 : -5;
+  var n = new Date(ms + off * 3600e3);
+  return { iso: ymd_(n), hour: n.getUTCHours(), minute: n.getUTCMinutes() };
+}
+
+function usEvents_(stocks, today) {
+  var events = [], status = { ok: true, detail: '' };
+  if (!stocks.length) return { events: events, status: status };
+  var auth = yahooAuth_(false);
+  if (!auth) return { events: [], status: { ok: false, detail: 'Yahoo 財報日資料暫時無法取得' } };
+  function fetchAllWith(a) {
+    return UrlFetchApp.fetchAll(stocks.map(function (h) {
+      return { url: 'https://query2.finance.yahoo.com/v10/finance/quoteSummary/' + encodeURIComponent(yahooSymbol_(h.code, 'US')) +
+        '?modules=calendarEvents,defaultKeyStatistics&crumb=' + encodeURIComponent(a.crumb),
+        muteHttpExceptions: true, headers: { 'User-Agent': UA, 'Cookie': a.cookie } };
+    }));
+  }
+  var resps;
+  try {
+    resps = fetchAllWith(auth);
+    if (resps.every(function (r) { return r.getResponseCode() === 401; })) {   // crumb 過期 → 重拿一次
+      auth = yahooAuth_(true);
+      if (auth) resps = fetchAllWith(auth);
+    }
+  } catch (e) { return { events: [], status: { ok: false, detail: 'Yahoo 財報日資料暫時無法取得' } }; }
+  var fails = 0;
+  resps.forEach(function (res, i) {
+    var h = stocks[i];
+    var r = null;
+    if (res.getResponseCode() === 200) {
+      try { var j = JSON.parse(res.getContentText('UTF-8')); r = j.quoteSummary && j.quoteSummary.result && j.quoteSummary.result[0]; } catch (e) { r = null; }
+    }
+    if (!r) { if (res.getResponseCode() !== 404) fails++; return; }
+    var cal = r.calendarEvents || {};
+    var e = cal.earnings || {};
+    var dates = (e.earningsDate || []).map(function (x) { return x && x.raw ? x.raw * 1000 : null; }).filter(Boolean).sort();
+    if (dates.length) {
+      // 日期取 UTC 日期（Yahoo 只有日期時會給 UTC 00:00）；有具體時間時才用美東時間判斷盤前／盤後
+      var first = new Date(dates[0]);
+      var p = { iso: ymd_(first) };
+      var est = !!e.isEarningsDateEstimate;
+      var lastIso = ymd_(new Date(dates[dates.length - 1]));
+      var range = lastIso !== p.iso ? lastIso : null;
+      var timing = null;
+      if (!range && (first.getUTCHours() || first.getUTCMinutes())) {
+        var ny = nyParts_(dates[0]);
+        var mins = ny.hour * 60 + ny.minute;
+        if (mins < 9 * 60 + 30) timing = '盤前';
+        else if (mins >= 16 * 60) timing = '盤後';
+        else timing = '盤中';
+      }
+      if (inWindow_(p.iso, today) || (range && inWindow_(range, today))) {
+        events.push({ id: 'er:' + h.code + ':' + p.iso, type: 'earnings', date: p.iso, dateEnd: range, time: null, timing: timing,
+          codes: [h.code], title: '財報公布', estimate: est || !!range,
+          detail: (timing ? '美東時間' + timing + '公布，台灣時間' + (timing === '盤後' ? '隔天清晨' : timing === '盤前' ? '當天晚上' : '當天深夜') : '公布時間未定') + (est || range ? '；日期為預估，公司正式公告後會更新' : ''),
+          source: 'Yahoo' });
+      }
+    }
+    var ex = cal.exDividendDate && cal.exDividendDate.raw ? ymd_(new Date(cal.exDividendDate.raw * 1000)) : null;
+    if (ex && inWindow_(ex, today)) {
+      var ks = r.defaultKeyStatistics || {};
+      var last = ks.lastDividendValue && ks.lastDividendValue.raw ? ks.lastDividendValue.raw : null;
+      var pay = cal.dividendDate && cal.dividendDate.raw ? ymd_(new Date(cal.dividendDate.raw * 1000)) : null;
+      events.push({ id: 'ex:' + h.code + ':' + ex, type: 'exdiv', date: ex, time: null, codes: [h.code], title: '除息',
+        cash: last, cashIsLast: true, payDate: pay, currency: 'USD', source: 'Yahoo' });
+    }
+  });
+  if (fails && fails === resps.length) status = { ok: false, detail: 'Yahoo 財報日資料暫時無法取得' };
+  else if (fails) status = { ok: false, detail: '部分美股的財報日抓不到' };
+  return { events: events, status: status };
+}
+
+function getEvents_() {
+  var holdings = readHoldings_();
+  var today = tpeToday_();
+  var key = 'ev:' + ymd_(today) + ':' + Utilities.base64EncodeWebSafe(Utilities.computeDigest(Utilities.DigestAlgorithm.MD5, holdings.map(function (h) { return h.market + h.code; }).sort().join(','), Utilities.Charset.UTF_8));
+  var cached = cacheGet_(key);
+  if (cached) return cached;
+
+  var tw = holdings.filter(function (h) { return h.market === 'TW'; });
+  var twStocks = tw.filter(function (h) { return !isEtf_(h.code); });
+  var us = holdings.filter(function (h) { return h.market === 'US'; });
+  var quotes = twStocks.length ? getQuotes_(twStocks) : {};
+
+  var conf = confEvents_(twStocks, quotes, today);
+  var exTw = tw.length ? exdivTwEvents_(tw, today) : { events: [], status: { ok: true, detail: '' } };
+  var usr = usEvents_(us, today);
+  var dl = deadlineEvents_(twStocks, today);
+
+  var events = conf.events.concat(exTw.events, usr.events, dl).sort(function (a, b) {
+    return a.date < b.date ? -1 : a.date > b.date ? 1 : (a.time || '99') < (b.time || '99') ? -1 : 1;
+  });
+  var sources = {};
+  if (twStocks.length) sources.conf = conf.status;
+  if (tw.length) sources.exTw = exTw.status;
+  if (us.length) sources.us = usr.status;
+  var result = { events: events, sources: sources, today: ymd_(today), fetchedAt: Date.now() };
+  var anyErr = Object.keys(sources).some(function (k) { return !sources[k].ok; });
+  cachePut_(key, result, anyErr ? CACHE_EVENTS_ERR_SEC : CACHE_EVENTS_SEC);
+  return result;
+}
+
+function probeMops_() {
+  var t0 = Date.now();
+  try {
+    var res = UrlFetchApp.fetch(mopsConfReq_('2330', 'sii', tpeToday_().getUTCFullYear() - 1911).url, mopsConfReq_('2330', 'sii', tpeToday_().getUTCFullYear() - 1911));
+    var list = res.getResponseCode() === 200 ? parseMopsConf_(res.getContentText('UTF-8')) : null;
+    return { name: '法說會（觀測站）', ok: list !== null, detail: list === null ? ('無法讀取（HTTP ' + res.getResponseCode() + '）') : ('台積電今年 ' + list.length + ' 場'), ms: Date.now() - t0 };
+  } catch (e) { return { name: '法說會（觀測站）', ok: false, detail: String(e && e.message || e).slice(0, 120), ms: Date.now() - t0 }; }
+}
+
+function probeYahooCal_() {
+  var t0 = Date.now();
+  var a = yahooAuth_(true);
+  if (!a) return { name: 'Yahoo 財報日', ok: false, detail: '取不到 Yahoo 驗證碼', ms: Date.now() - t0 };
+  try {
+    var res = UrlFetchApp.fetch('https://query2.finance.yahoo.com/v10/finance/quoteSummary/AAPL?modules=calendarEvents&crumb=' + encodeURIComponent(a.crumb), { muteHttpExceptions: true, headers: { 'User-Agent': UA, 'Cookie': a.cookie } });
+    var j = JSON.parse(res.getContentText('UTF-8'));
+    var e = j.quoteSummary.result[0].calendarEvents.earnings.earningsDate;
+    return { name: 'Yahoo 財報日', ok: !!(e && e.length), detail: e && e.length ? ('AAPL ' + e[0].fmt) : '沒有資料', ms: Date.now() - t0 };
+  } catch (err) { return { name: 'Yahoo 財報日', ok: false, detail: String(err && err.message || err).slice(0, 120), ms: Date.now() - t0 }; }
 }

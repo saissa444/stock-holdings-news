@@ -59,9 +59,29 @@ function newsFor(q, lang, days) {
   return [];
 }
 
+
+// ---------- 時程用的測試資料（日期都相對於「台北今天」，測試哪天跑都一樣） ----------
+const DAY = 86400e3;
+function tpeMidnightUTC(offset) { const d = new Date(Date.now() + 8 * 3600e3); return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) + offset * DAY; }
+function isoOf(offset) { return new Date(tpeMidnightUTC(offset)).toISOString().slice(0, 10); }
+function roc7(offset) { const d = new Date(tpeMidnightUTC(offset)); return String(d.getUTCFullYear() - 1911) + String(d.getUTCMonth() + 1).padStart(2, '0') + String(d.getUTCDate()).padStart(2, '0'); }
+function rocSlash(offset) { const r = roc7(offset); return r.slice(0, 3) + '/' + r.slice(3, 5) + '/' + r.slice(5); }
+function mopsHtml(rows) {
+  const head = `<table class='hasBorder' id='myTable' width='100%'><tr class='tblHead'><th rowspan='2'>公司代號</th><th rowspan='2'>公司名稱</th><th rowspan='2'>召開法人說明會日期</th><th rowspan='2'>召開法人說明會時間</th><th rowspan='2'>召開法人說明會地點</th><th rowspan='2'>法人說明會擇要訊息</th><th colspan='2'>法人說明會簡報內容</th><th rowspan='2'>公司網站是否提供法人說明會相關資訊</th><th rowspan='2'>影音連結資訊</th><th rowspan='2'>其他應敘明事項</th><th rowspan='2'>歷年法人說明會</th></tr><tr class='tblHead'><th>中文檔案</th><th>英文檔案</th></tr>`;
+  return `<html><body><center>${head}${rows.map(r => `<tr class='even'><td>${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td><td>${r[3]}</td><td>${r[4]}</td><td style='text-align:left'>${r[5]}</td><td>x.pdf</td><td>&nbsp;</td><td>https://investor.example.com</td><td>&nbsp;</td><td>&nbsp;</td><td><input type='button' value='歷年'></td></tr>`).join('')}</table></center></body></html>`;
+}
+const MOPS_CONF = {
+  'sii:2330': () => [
+    ['2330', '台積電', rocSlash(-40), '14:00', '台北萬豪酒店', '115年第三季營運成果'],
+    ['2330', '台積電', rocSlash(5), '14:00', '線上法說會&nbsp;（同步直播）', '本公司115年第四季<br>營運展望說明'],
+  ],
+  'otc:6488': () => [['6488', '環球晶', rocSlash(20), '15:30', '新竹', '營運概況說明']],
+};
+let crumbVersion = 1;
+
 /** state: { misDown, yahooDown, yahoo429, newsDown, fxYahooDown, erDown } */
 function makeHandler(state = {}) {
-  return function (url) {
+  return function (url, req) {
     const u = new URL(url);
     if (u.hostname === 'mis.twse.com.tw') {
       if (state.misDown) return { code: 503, body: '<html>busy</html>' };
@@ -74,7 +94,7 @@ function makeHandler(state = {}) {
       });
       return { code: 200, body: JSON.stringify({ msgArray: arr, rtcode: '0000', rtmessage: 'OK' }) };
     }
-    if (u.hostname.endsWith('finance.yahoo.com')) {
+    if (u.hostname.endsWith('finance.yahoo.com') && u.pathname.includes('/v8/finance/chart/')) {
       if (state.yahooDown) return { code: 500, body: 'err' };
       if (state.yahoo429 && u.hostname.startsWith('query1')) return { code: 429, body: 'Too Many Requests' };
       if (state.fxYahooDown && u.pathname.includes('TWD')) return { code: 500, body: 'err' };
@@ -90,6 +110,53 @@ function makeHandler(state = {}) {
       const days = +(q.match(/when:(\d+)d/) || [0, 1])[1];
       return { code: 200, body: rss(newsFor(q, lang, days)) };
     }
+    if (u.hostname === 'mopsov.twse.com.tw') {
+      if (state.mopsDown) return { code: 200, body: '<html><body>FOR SECURITY REASONS, THIS PAGE CAN NOT BE ACCESSED!</body></html>' };
+      const f = (req && req.payload) || {};
+      if (f.firstin !== '1' || !f.TYPEK) return { code: 200, body: '<html><body></body></html>' };
+      const rows = MOPS_CONF[f.TYPEK + ':' + f.co_id];
+      const thisYear = String(new Date(tpeMidnightUTC(0)).getUTCFullYear() - 1911);
+      if (!rows || f.year !== thisYear) return { code: 200, body: '<html><body><center><h3>查無資料！</h3></center></body></html>' };
+      return { code: 200, body: mopsHtml(rows()) };
+    }
+    if (u.hostname === 'openapi.twse.com.tw' && u.pathname.endsWith('TWT48U_ALL')) {
+      if (state.exDown) return { code: 503, body: '' };
+      return { code: 200, body: JSON.stringify([
+        { Date: roc7(10), Code: '0050', Name: '元大台灣50', Exdividend: '息', StockDividendRatio: '', SubscriptionRatio: '', SubscriptionPricePerShare: '', CashDividend: '1.00000000', SharesOffered: '', SharesEmpOwner: '', SharesholderOwner: '', StockHoldingRatio: '' },
+        { Date: roc7(40), Code: '2330', Name: '台積電', Exdividend: '息', StockDividendRatio: '', CashDividend: '5.00000000' },
+        { Date: roc7(12), Code: '2317', Name: '鴻海', Exdividend: '息', CashDividend: '5.4' },
+        { Date: roc7(400), Code: '2330', Name: '台積電', Exdividend: '息', CashDividend: '9' },
+      ]) };
+    }
+    if (u.hostname === 'www.tpex.org.tw' && u.pathname.endsWith('tpex_exright_prepost')) {
+      if (state.exDown) return { code: 503, body: '' };
+      return { code: 200, body: JSON.stringify([
+        { ExRrightsExDividendDate: roc7(15), SecuritiesCompanyCode: '6488', CompanyName: '環球晶', ExRrightsExDividend: '權息', StockDividendRatio: '0.05', CashDividend: '4.5' },
+      ]) };
+    }
+    if (u.hostname === 'fc.yahoo.com' || (u.hostname === 'finance.yahoo.com' && req && req.followRedirects === false)) {
+      if (state.yahooAuthDown) return { code: 404, body: '' };
+      return { code: 404, body: 'Not Found', headers: { 'Set-Cookie': ['A3=d=AQABBTEST' + crumbVersion + '; Expires=Mon, 25 Oct 2027 10:00:00 GMT; Max-Age=31557600; Domain=.yahoo.com; Path=/; SameSite=None; Secure; HttpOnly'] } };
+    }
+    if (u.hostname.endsWith('finance.yahoo.com') && u.pathname.includes('/v1/test/getcrumb')) {
+      const ck = (req && req.headers && req.headers.Cookie) || '';
+      if (!/A3=d=AQABBTEST/.test(ck)) return { code: 401, body: '' };
+      return { code: 200, body: 'Crumb' + crumbVersion + '.zX' };
+    }
+    if (u.hostname.endsWith('finance.yahoo.com') && u.pathname.includes('/v10/finance/quoteSummary/')) {
+      const ok = u.searchParams.get('crumb') === 'Crumb' + crumbVersion + '.zX' && /A3=d=AQABBTEST/.test((req && req.headers && req.headers.Cookie) || '');
+      if (!ok) return { code: 401, body: JSON.stringify({ finance: { result: null, error: { code: 'Unauthorized', description: 'Invalid Crumb' } } }) };
+      const sym = decodeURIComponent(u.pathname.split('/').pop());
+      const t = (off, h, m) => Math.floor((tpeMidnightUTC(off) + ((h || 0) * 60 + (m || 0)) * 60e3) / 1000);
+      const R = {
+        AAPL: { calendarEvents: { earnings: { earningsDate: [{ raw: t(4, 20, 30), fmt: isoOf(4) }], isEarningsDateEstimate: false }, exDividendDate: { raw: t(-3) }, dividendDate: { raw: t(10) } }, defaultKeyStatistics: { lastDividendValue: { raw: 0.26 } } },
+        NVDA: { calendarEvents: { earnings: { earningsDate: [{ raw: t(30) }, { raw: t(35) }], isEarningsDateEstimate: true } }, defaultKeyStatistics: {} },
+        MSFT: { calendarEvents: { earnings: { earningsDate: [{ raw: t(6, 11, 0) }], isEarningsDateEstimate: false } }, defaultKeyStatistics: {} },
+        'BRK-B': { calendarEvents: {}, defaultKeyStatistics: {} },
+      }[sym];
+      if (!R) return { code: 404, body: JSON.stringify({ quoteSummary: { result: null, error: { code: 'Not Found' } } }) };
+      return { code: 200, body: JSON.stringify({ quoteSummary: { result: [R], error: null } }) };
+    }
     if (u.hostname === 'open.er-api.com') {
       if (state.erDown) return { code: 500, body: '' };
       return { code: 200, body: JSON.stringify({ result: 'success', time_last_update_unix: Math.floor(now / 1000) - 3600, rates: { USD: 1, TWD: 30.7 } }) };
@@ -98,4 +165,4 @@ function makeHandler(state = {}) {
   };
 }
 
-module.exports = { makeHandler };
+module.exports = { makeHandler, isoOf, expireCrumb: () => { crumbVersion++; } };

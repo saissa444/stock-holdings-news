@@ -59,13 +59,13 @@ function makeEnv(fetchHandler) {
   const props = {};
   const cacheStore = {};
   let fetchLog = [];
-  const resp = (code, body) => ({ getResponseCode: () => code, getContentText: () => body });
+  const resp = (code, body, headers) => ({ getResponseCode: () => code, getContentText: () => body, getAllHeaders: () => headers || {} });
   const doFetch = (req) => {
     const r = typeof req === 'string' ? { url: req } : req;
-    fetchLog.push(r.url);
-    const out = fetchHandler(r.url);
+    fetchLog.push(r.url + (r.payload && r.payload.co_id ? '#co_id=' + r.payload.co_id + '&TYPEK=' + r.payload.TYPEK : ''));
+    const out = fetchHandler(r.url, r);
     if (out instanceof Error) throw out;
-    return resp(out.code, out.body);
+    return resp(out.code, out.body, out.headers);
   };
 
   // ---------- XmlService（用 xml-js 模擬 getRootElement / getChild / getChildren / getChildText / getText） ----------
