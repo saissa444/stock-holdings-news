@@ -119,6 +119,13 @@ main{max-width:1180px;margin:0 auto;padding:12px 12px calc(var(--sab) + 90px)}
 .hpnl{grid-column:1/-1;display:flex;flex-wrap:wrap;justify-content:space-between;gap:0 12px;font-size:13px;color:var(--muted);margin-top:2px}
 .hpnl>span{white-space:nowrap}
 .hpnl .num{font-size:15px}
+.hstats{grid-column:1/-1;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:0 12px;margin-top:6px}
+.hsub span{display:block;overflow:hidden;text-overflow:ellipsis}
+.hstats>div{font-size:12px;color:var(--muted);min-width:0;white-space:nowrap}
+.hstats>div:last-child{text-align:right}
+.hstats b{display:block;font-family:var(--num);font-size:16px;font-weight:600;font-variant-numeric:tabular-nums;color:var(--text);overflow:hidden;text-overflow:ellipsis}
+.hstats b.up{color:var(--up)} .hstats b.down{color:var(--down)}
+.hstats .pc{font-family:var(--num);font-weight:600;margin-left:4px}
 .pill{display:inline-block;padding:0 6px;border-radius:5px;font-family:var(--num);font-weight:600;font-variant-numeric:tabular-nums}
 .pill.up{background:var(--up-bg)} .pill.down{background:var(--down-bg)}
 
@@ -242,6 +249,7 @@ dialog::backdrop{background:rgba(10,16,30,.45)}
         <select id="sortSel">
           <option value="mv">依市值</option>
           <option value="day">依今日漲跌</option>
+          <option value="dayAmt">依今日損益</option>
           <option value="pnl">依報酬率</option>
           <option value="code">依代號</option>
         </select>
@@ -524,7 +532,7 @@ function compute() {
       r.dayChg = prev ? p - prev : null;
       r.dayPct = prev ? (p - prev) / prev : null;
       r.day = prev ? (p - prev) * h.shares : null;
-      if (rate) { r.mvT = r.mv * rate; r.pnlT = r.pnl != null ? r.pnl * rate : null; r.costT = r.cost != null ? r.cost * rate : null; r.dayT = r.day != null ? r.day * rate : null; }
+      if (rate) { r.mvT = r.mv * rate; r.pnlT = r.pnl != null ? r.pnl * rate : null; r.costT = r.cost != null ? r.cost * rate : null; r.dayT = r.day != null ? r.day * rate : null; r.dayTR = r.dayT != null ? Math.round(r.dayT) : null; }
     }
     return r;
   });
@@ -534,7 +542,7 @@ function compute() {
     if (r.rate == null) { sum.noFx++; return; }
     sum.mv += r.mvT;
     if (r.pnlT != null) { sum.pnl += r.pnlT; sum.cost += r.costT; }
-    if (r.dayT != null) { sum.day += r.dayT; sum.prevMv += r.mvT - r.dayT; }
+    if (r.dayT != null) { sum.day += r.dayTR; sum.prevMv += r.mvT - r.dayT; }
   });
   sum.pct = sum.cost ? sum.pnl / sum.cost : null;
   sum.dayPct = sum.prevMv ? sum.day / sum.prevMv : null;
@@ -581,7 +589,7 @@ function renderSummary(c) {
 /* ================= 畫面：持倉 ================= */
 function sortRows(rows) {
   const k = cfg.sort;
-  const v = (r) => k === 'mv' ? (r.mvT ?? -Infinity) : k === 'day' ? (r.dayPct ?? -Infinity) : k === 'pnl' ? (r.pnlPct ?? -Infinity) : 0;
+  const v = (r) => k === 'mv' ? (r.mvT ?? -Infinity) : k === 'day' ? (r.dayPct ?? -Infinity) : k === 'dayAmt' ? (r.dayTR ?? -Infinity) : k === 'pnl' ? (r.pnlPct ?? -Infinity) : 0;
   return rows.slice().sort((a, b) => k === 'code' ? a.h.code.localeCompare(b.h.code) : v(b) - v(a));
 }
 function renderHoldings(c) {
@@ -609,11 +617,14 @@ function renderHoldings(c) {
     if (r.q) {
       price = el('div', { class: 'hprice num ' + cls(r.dayChg) }, cur + fmtPrice(r.q.price));
       chg = el('div', { class: 'hchg' }, el('span', { class: 'pill ' + cls(r.dayChg) }, (r.dayChg != null ? signed(r.dayChg, NF2) + ' ' : '') + pct(r.dayPct)));
-      sub = el('div', { class: 'hsub' }, fmtShares(h.shares) + ' 股　成本 ' + (h.cost != null ? cur + fmtPrice(h.cost) : '未填'));
+      sub = el('div', { class: 'hsub' },
+        el('span', null, fmtShares(h.shares) + ' 股　成本 ' + (h.cost != null ? cur + fmtPrice(h.cost) : '未填')),
+        el('span', null, '市值 ' + (isUS ? 'US$' + NF2.format(r.mv) : NF0.format(Math.round(r.mv)))));
       const pnlText = r.pnl == null ? '—' : (isUS ? 'US$' + signed(r.pnl, NF2) : signed(Math.round(r.pnl), NF0));
-      pnlLine = el('div', { class: 'hpnl' },
-        el('span', null, '市值 ', el('span', { class: 'num' }, isUS ? 'US$' + NF2.format(r.mv) : NF0.format(Math.round(r.mv)))),
-        el('span', null, '損益 ', el('span', { class: 'num ' + cls(r.pnl) }, pnlText + (r.pnlPct != null ? '（' + pct(r.pnlPct) + '）' : ''))));
+      const dayText = r.dayTR != null ? signed(r.dayTR, NF0) : (r.day != null ? '匯率缺' : '—');
+      pnlLine = el('div', { class: 'hstats' },
+        el('div', null, '今日損益（台幣）', el('b', { class: cls(r.dayTR) }, dayText)),
+        el('div', null, '未實現損益', r.pnlPct != null ? el('span', { class: 'pc ' + cls(r.pnlPct) }, pct(r.pnlPct)) : null, el('b', { class: cls(r.pnl) }, pnlText)));
     } else {
       price = el('div', { class: 'hprice num flat' }, '—');
       chg = el('div', { class: 'hchg flat' }, '無報價');
@@ -1010,7 +1021,8 @@ function openDetail(code) {
     stat('持有股數', fmtShares(r.h.shares) + ' 股');
     stat('平均成本', r.h.cost != null ? cur + fmtPrice(r.h.cost) : '未填');
     stat('市值', isUS ? 'US$' + NF2.format(r.mv) : 'NT$' + NF0.format(Math.round(r.mv)));
-    stat('今日損益', r.day != null ? (isUS ? 'US$' + signed(r.day, NF2) : signed(Math.round(r.day), NF0)) : '—', cls(r.day));
+    stat('今日損益（台幣）', r.dayTR != null ? 'NT$' + signed(r.dayTR, NF0) : '—', cls(r.dayTR));
+    if (isUS) stat('今日損益（美元）', r.day != null ? 'US$' + signed(r.day, NF2) : '—', cls(r.day));
     stat('未實現損益', r.pnl != null ? (isUS ? 'US$' + signed(r.pnl, NF2) : signed(Math.round(r.pnl), NF0)) : '—', cls(r.pnl));
     stat('報酬率', pct(r.pnlPct), cls(r.pnlPct));
     if (isUS && r.rate) stat('折合台幣', 'NT$' + NF0.format(Math.round(r.mvT)) + (r.pnlT != null ? '／損益 ' + signed(Math.round(r.pnlT), NF0) : ''));

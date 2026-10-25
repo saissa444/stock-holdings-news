@@ -164,17 +164,28 @@ async function setupRoutes(ctx) {
     };
     const tw = [['2330', 2000, 612.5, 1085, 1070], ['0050', 1500, 150.33, 196.48, 195.2], ['6488', 100, 500, 420.5, 415]];
     const us = [['AAPL', 10, 180, 268.81, 262.24], ['NVDA', 25, 120.5, 186.26, 180.28]];
-    let mv = 0, pnl = 0, day = 0, cost = 0;
-    tw.forEach(([c, s, co, p, y]) => { const m = p * s; mv += m; pnl += m - fee(c, s, m) - co * s; cost += co * s; day += (p - y) * s; });
-    us.forEach(([c, s, co, p, y]) => { mv += p * s * fx; pnl += (p - co) * s * fx; cost += co * s * fx; day += (p - y) * s * fx; });
+    let mv = 0, pnl = 0, day = 0, cost = 0, dayRaw = 0;
+    const perDay = {};
+    tw.forEach(([c, s, co, p, y]) => { const m = p * s; mv += m; pnl += m - fee(c, s, m) - co * s; cost += co * s; perDay[c] = Math.round((p - y) * s); day += perDay[c]; dayRaw += (p - y) * s; });
+    us.forEach(([c, s, co, p, y]) => { mv += p * s * fx; pnl += (p - co) * s * fx; cost += co * s * fx; perDay[c] = Math.round((p - y) * s * fx); day += perDay[c]; dayRaw += (p - y) * s * fx; });
+    // 每檔「今日損益（台幣）」與獨立計算一致，且加總剛好等於上方的今日損益
+    const shownDay = await page.$$eval('.hrow', rows => Object.fromEntries(rows.map(r => [r.querySelector('.hcode').textContent, r.querySelector('.hstats > div:first-child b').textContent])));
+    let rowSum = 0;
+    Object.keys(perDay).forEach(c => {
+      const v = Number(shownDay[c].replace(/[^\d\-−+]/g, '').replace('−', '-'));
+      assert.strictEqual(v, perDay[c], c + ' 今日損益 ' + shownDay[c] + ' vs ' + perDay[c]);
+      rowSum += v;
+    });
     const n = (s) => Number(s.replace(/[^\d.\-−]/g, '').replace('−', '-'));
     const total = n(await page.textContent('#total'));
     const kPnl = n(await page.textContent('#kPnl'));
     const kDay = n(await page.$eval('#kDay', e => e.firstChild.textContent));
-    assert.strictEqual(await page.textContent('#kDay i'), '+' + (day / (mv - day) * 100).toFixed(2) + '%');
+    assert.strictEqual(await page.textContent('#kDay i'), '+' + (day / (mv - dayRaw) * 100).toFixed(2) + '%');
     assert.strictEqual(total, Math.round(mv), 'total ' + total + ' vs ' + mv);
     assert.strictEqual(kPnl, Math.round(pnl), 'pnl ' + kPnl + ' vs ' + pnl);
-    assert.strictEqual(kDay, Math.round(day), 'day ' + kDay + ' vs ' + day);
+    assert.strictEqual(kDay, day, 'day ' + kDay + ' vs ' + day);
+    assert.strictEqual(rowSum, kDay, '各股今日損益加總 = 上方今日損益');
+    console.log('   各股今日損益（台幣）', JSON.stringify(shownDay));
     const pctShown = await page.textContent('#kPct');
     assert.strictEqual(pctShown, '+' + (pnl / cost * 100).toFixed(2) + '%');
     console.log('   總市值', Math.round(mv), '未實現', Math.round(pnl), '今日', Math.round(day), pctShown);
@@ -285,6 +296,18 @@ async function setupRoutes(ctx) {
     await page.selectOption('#sortSel', 'day');
     const codes = await page.$$eval('.hcode', e => e.map(x => x.textContent));
     assert.deepStrictEqual(codes, ['NVDA', 'AAPL', '2330', '0050']);
+  });
+
+  await t('排序：依今日損益（台幣金額）', async () => {
+    await page.selectOption('#sortSel', 'dayAmt');
+    const codes = await page.$$eval('.hcode', e => e.map(x => x.textContent));
+    assert.deepStrictEqual(codes, ['2330', 'NVDA', 'AAPL', '0050']);
+    await page.click('.hrow:has(.hcode:text-is("NVDA"))');
+    const st = await page.textContent('#detStats');
+    assert.match(st, /今日損益（台幣）NT\$\+4,578/);
+    assert.match(st, /今日損益（美元）US\$\+149\.50/);
+    await page.click('#dlgDetail [data-close]');
+    await page.selectOption('#sortSel', 'day');
   });
 
   await t('設定：漲跌顏色切換為國際習慣', async () => {
