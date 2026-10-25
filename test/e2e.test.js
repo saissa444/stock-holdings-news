@@ -370,6 +370,40 @@ async function setupRoutes(ctx) {
     backendDown = false;
   });
 
+  await t('美光新聞：不相關的被略過並說明；設定關閉篩選後會出現', async () => {
+    await page.click('#tabHold');
+    await page.click('#fab');
+    await page.fill('#fCode', 'MU');
+    await page.click('#btnLookup');
+    await page.waitForSelector('#found:not(.hidden)');
+    assert.strictEqual(await page.inputValue('#fName'), 'Micron Technology');
+    await page.fill('#fShares', '10'); await page.fill('#fCost', '90');
+    await page.click('#btnSave');
+    await page.waitForFunction(() => !document.querySelector('#dlgEdit').open);
+    await page.click('#tabNews');
+    await page.waitForSelector('#chips .chip:has-text("Micron")');
+    await page.click('#chips .chip:has-text("Micron")');
+    assert.match(await page.textContent('#newsList'), /正在整理新聞|美光財報/, '載入中不應顯示「沒有找到」');
+    await page.waitForFunction(() => /美光財報/.test(document.querySelector('#newsList').textContent));
+    const txt = await page.textContent('#newsList');
+    assert.match(txt, /美光財報優於預期/);
+    assert.match(txt, /\$MU leads gains/);
+    assert.ok(!/Manchester|MU 5G|盤前要聞|Top 5 stocks/.test(txt), txt);
+    assert.match(txt, /已略過 5 則標題沒提到「美光、Micron/);
+    await page.screenshot({ path: OUT + '/12-news-mu-filtered.png', fullPage: true });
+    await page.click('#btnSettings');
+    await page.uncheck('#sStrict');
+    await page.click('#btnSaveSet');
+    await page.waitForFunction(() => /Manchester/.test(document.querySelector('#newsList').textContent));
+    await page.click('#btnSettings');
+    await page.check('#sStrict');
+    await page.click('#btnSaveSet');
+    await page.waitForFunction(() => !/Manchester/.test(document.querySelector('#newsList').textContent) && /美光財報/.test(document.querySelector('#newsList').textContent));
+    await page.click('#chips .chip:has-text("全部")');
+    assert.match(await page.textContent('#newsList'), /已略過 \d+ 則標題沒提到持股公司的新聞/);
+    await page.click('#tabHold');
+  });
+
   await t('沒有任何 CORS 預檢（OPTIONS）請求、沒有 JS 錯誤', async () => {
     assert.strictEqual(options, 0);
     assert.deepStrictEqual(errors, []);

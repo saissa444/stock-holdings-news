@@ -14,6 +14,7 @@ const YAHOO = {
   'AAPL': { regularMarketPrice: 268.81, previousClose: 262.24, currency: 'USD', shortName: 'Apple Inc.', exchangeName: 'NMS' },
   'NVDA': { regularMarketPrice: 186.26, chartPreviousClose: 180.28, currency: 'USD', longName: 'NVIDIA Corporation', exchangeName: 'NMS' },
   'BRK-B': { regularMarketPrice: 489.1, previousClose: 491.0, currency: 'USD', shortName: 'Berkshire Hathaway Inc. New', exchangeName: 'NYQ' },
+  'MU': { regularMarketPrice: 105.2, previousClose: 101.0, currency: 'USD', shortName: 'Micron Technology, Inc.', exchangeName: 'NMS' },
   'TWD=X': { regularMarketPrice: 30.62, previousClose: 30.55, currency: 'TWD', shortName: 'USD/TWD' },
   '2330.TW': { regularMarketPrice: 1084, previousClose: 1070, currency: 'TWD', longName: 'Taiwan Semiconductor Manufacturing Company Limited' },
   '6488.TWO': { regularMarketPrice: 420, previousClose: 415, currency: 'TWD', longName: 'GlobalWafers Co., Ltd.' },
@@ -42,16 +43,40 @@ function newsFor(q, lang, days) {
     { title: '0050 規模創新高 - 鉅亨網', source: '鉅亨網', link: 'https://news.google.com/rss/articles/CCC2', time: now - 4 * h },
     { title: '台股 ETF 資金動向 - 工商時報', source: '工商時報', link: 'https://news.google.com/rss/articles/CCC3', time: now - 9 * h },
   ];
-  if (q.includes('AAPL') && lang === 'en') return [
+  if ((q.includes('Micron') || q.includes('美光')) && lang === 'en') return [
+    { title: 'Micron shares jump as AI memory demand surges - Reuters', source: 'Reuters', link: 'https://news.google.com/rss/articles/MU1', time: now - 1 * h },
+    { title: 'Manchester United (MU) stock slides after Premier League loss - Yahoo Finance', source: 'Yahoo Finance', link: 'https://news.google.com/rss/articles/MU2', time: now - 2 * h },
+    { title: 'Memory chip stocks rally; $MU leads gains - Investing.com', source: 'Investing.com', link: 'https://news.google.com/rss/articles/MU3', time: now - 3 * h },
+    { title: 'Top 5 stocks to watch this week - MarketWatch', source: 'MarketWatch', link: 'https://news.google.com/rss/articles/MU4', time: now - 4 * h },
+  ];
+  if (q.includes('Micron') || q.includes('美光')) return [
+    { title: '美光財報優於預期 盤後大漲 - 鉅亨網', source: '鉅亨網', link: 'https://news.google.com/rss/articles/MU5', time: now - 2 * h },
+    { title: 'MU 5G 新機開箱 續航力實測 - 3C 新報', source: '3C 新報', link: 'https://news.google.com/rss/articles/MU6', time: now - 3 * h },
+    { title: '記憶體報價續揚 南亞科、華邦電受惠 - 經濟日報', source: '經濟日報', link: 'https://news.google.com/rss/articles/MU7', time: now - 5 * h },
+    { title: '台股盤前要聞 - 中央社', source: '中央社', link: 'https://news.google.com/rss/articles/MU8', time: now - 6 * h },
+    { title: 'Micron 擴大台中投資 - 工商時報', source: '工商時報', link: 'https://news.google.com/rss/articles/MU9', time: now - 7 * h },
+  ];
+  if ((q.includes('SanDisk') || q.includes('閃迪')) && lang === 'en') return [
+    { title: 'SanDisk stock soars on NAND price hikes - CNBC', source: 'CNBC', link: 'https://news.google.com/rss/articles/SN1', time: now - 1 * h },
+    { title: 'Why storage names are rallying today - The Motley Fool', source: 'The Motley Fool', link: 'https://news.google.com/rss/articles/SN2', time: now - 2 * h },
+    { title: 'Western Digital and Sandisk split one year later - Barron\'s', source: "Barron's", link: 'https://news.google.com/rss/articles/SN3', time: now - 30 * h },
+  ];
+  if (q.includes('SanDisk') || q.includes('閃迪')) return [
+    { title: '閃迪 NAND 合約價再漲 群聯受惠 - 經濟日報', source: '經濟日報', link: 'https://news.google.com/rss/articles/SN4', time: now - 2 * h },
+    { title: '記憶體族群走強 外資喊進 - 鉅亨網', source: '鉅亨網', link: 'https://news.google.com/rss/articles/SN5', time: now - 3 * h },
+    { title: '迪士尼樂園門票漲價 - ETtoday', source: 'ETtoday', link: 'https://news.google.com/rss/articles/SN6', time: now - 4 * h },
+    { title: '旺宏法說：與閃迪合作延續 - 工商時報', source: '工商時報', link: 'https://news.google.com/rss/articles/SN7', time: now - 8 * h },
+  ];
+  if ((q.includes('AAPL') || q.includes('Apple')) && lang === 'en') return [
     { title: 'Apple stock hits record high ahead of earnings - Reuters', source: 'Reuters', link: 'https://news.google.com/rss/articles/DDD1', time: now - 1 * h },
     { title: 'What to expect from Apple&#39;s quarter - CNBC', source: 'CNBC', link: 'https://news.google.com/rss/articles/DDD2', time: now - 7 * h },
   ];
-  if (q.includes('AAPL')) return [
+  if (q.includes('AAPL') || q.includes('Apple') || q.includes('蘋果')) return [
     { title: '蘋果財報前夕 AAPL 股價創高 - 鉅亨網', source: '鉅亨網', link: 'https://news.google.com/rss/articles/DDD3', time: now - 2 * h },
     { title: 'iPhone 18 拉貨動能 - 經濟日報', source: '經濟日報', link: 'https://news.google.com/rss/articles/DDD4', time: now - 12 * h },
     { title: '美股科技股收紅 - 中央社', source: '中央社', link: 'https://news.google.com/rss/articles/DDD5', time: now - 20 * h },
   ];
-  if (q.includes('輝達') || q.includes('NVDA')) return [
+  if (q.includes('輝達') || q.includes('NVDA') || q.includes('Nvidia')) return [
     { title: '輝達 GTC 大會亮點整理 - 數位時代', source: '數位時代', link: 'https://news.google.com/rss/articles/EEE1', time: now - 4 * h },
     { title: 'Nvidia shares rise on AI demand - Bloomberg', source: 'Bloomberg', link: 'https://news.google.com/rss/articles/EEE2', time: now - 8 * h },
     { title: '輝達供應鏈受惠 - 工商時報', source: '工商時報', link: 'https://news.google.com/rss/articles/EEE3', time: now - 15 * h },

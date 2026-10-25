@@ -16,7 +16,7 @@
 var SHEET_HOLD = '持倉';
 var SHEET_INFO = '說明';
 var HEADERS = ['代號', '市場', '名稱', '股數', '平均成本', '新聞關鍵字', '備註'];
-var VERSION = '1.1.0';
+var VERSION = '1.2.0';
 
 var CACHE_QUOTE_SEC = 15;
 var CACHE_FX_SEC = 1800;
@@ -78,7 +78,7 @@ function doGet(e) {
     checkToken_(p.token);
     switch (p.action) {
       case 'data': return getData_();
-      case 'news': return getNews_(String(p.codes || ''), p.days, p.en);
+      case 'news': return getNews_(String(p.codes || ''), p.days, p.en, p.strict);
       case 'lookup': return lookup_(String(p.code || ''));
       case 'events': return getEvents_();
       case 'diagnose': return diagnose_();
@@ -471,20 +471,105 @@ function lookup_(raw) {
 
 /* ===================== 新聞 ===================== */
 
-function newsQueries_(h, englishForUS) {
-  var qs = [];
-  if (h.keyword) {
-    qs.push({ q: h.keyword, lang: h.market === 'US' && /^[\x00-\x7F]*$/.test(h.keyword) ? 'en' : 'zh' });
-    return qs;
+/* 常見美股的中文／英文名稱（台灣媒體慣用）。沒列到的美股會用 Yahoo 的英文名稱；
+   也可以在持股的「新聞關鍵字」自己補。 */
+var US_NAMES = {
+  AAPL: [['蘋果'], ['Apple']], MSFT: [['微軟'], ['Microsoft']], NVDA: [['輝達'], ['Nvidia']],
+  GOOGL: [['谷歌'], ['Alphabet', 'Google']], GOOG: [['谷歌'], ['Alphabet', 'Google']], AMZN: [['亞馬遜'], ['Amazon']],
+  META: [['臉書'], ['Meta Platforms', 'Meta']], TSLA: [['特斯拉'], ['Tesla']], AMD: [['超微'], ['AMD']],
+  INTC: [['英特爾'], ['Intel']], AVGO: [['博通'], ['Broadcom']], QCOM: [['高通'], ['Qualcomm']],
+  MU: [['美光'], ['Micron']], SNDK: [['閃迪'], ['SanDisk']], WDC: [['威騰'], ['Western Digital']],
+  STX: [['希捷'], ['Seagate']], TSM: [['台積電'], ['TSMC', 'Taiwan Semiconductor']], ASML: [['艾司摩爾'], ['ASML']],
+  ARM: [['安謀'], ['Arm Holdings']], SMCI: [['美超微'], ['Super Micro', 'Supermicro']], DELL: [['戴爾'], ['Dell']],
+  HPQ: [['惠普'], ['HP Inc']], ORCL: [['甲骨文'], ['Oracle']], CRM: [[], ['Salesforce']], ADBE: [[], ['Adobe']],
+  NFLX: [['網飛'], ['Netflix']], DIS: [['迪士尼'], ['Disney']], KO: [['可口可樂'], ['Coca-Cola']],
+  PEP: [['百事'], ['PepsiCo']], MCD: [['麥當勞'], ["McDonald's", 'McDonald']], SBUX: [['星巴克'], ['Starbucks']],
+  NKE: [['耐吉'], ['Nike']], COST: [['好市多'], ['Costco']], WMT: [['沃爾瑪'], ['Walmart']],
+  JPM: [['摩根大通'], ['JPMorgan']], BAC: [['美國銀行'], ['Bank of America']], GS: [['高盛'], ['Goldman Sachs']],
+  MS: [['摩根士丹利'], ['Morgan Stanley']], V: [[], ['Visa']], MA: [['萬事達'], ['Mastercard']],
+  'BRK.B': [['波克夏'], ['Berkshire']], JNJ: [['嬌生'], ['Johnson & Johnson']], PFE: [['輝瑞'], ['Pfizer']],
+  LLY: [['禮來'], ['Eli Lilly']], NVO: [['諾和諾德'], ['Novo Nordisk']], UNH: [['聯合健康'], ['UnitedHealth']],
+  XOM: [['埃克森美孚'], ['Exxon']], CVX: [['雪佛龍'], ['Chevron']], BA: [['波音'], ['Boeing']],
+  PLTR: [[], ['Palantir']], COIN: [[], ['Coinbase']], UBER: [[], ['Uber']], PYPL: [[], ['PayPal']],
+  BABA: [['阿里巴巴'], ['Alibaba']], PDD: [['拼多多'], ['PDD Holdings', 'Temu']], TXN: [['德州儀器'], ['Texas Instruments']],
+  LRCX: [['科林研發'], ['Lam Research']], AMAT: [['應用材料'], ['Applied Materials']], KLAC: [['科磊'], ['KLA']],
+  MRVL: [['邁威爾'], ['Marvell']], ON: [['安森美'], ['onsemi']], NXPI: [['恩智浦'], ['NXP']],
+  ADI: [['亞德諾'], ['Analog Devices']], CSCO: [['思科'], ['Cisco']], IBM: [[], ['IBM']], CRWD: [[], ['CrowdStrike']],
+  MSTR: [['微策略'], ['MicroStrategy']], GE: [['奇異'], ['GE Aerospace']], F: [['福特'], ['Ford']],
+  GM: [['通用汽車'], ['General Motors']], HD: [['家得寶'], ['Home Depot']], C: [['花旗'], ['Citigroup']],
+  WFC: [['富國銀行'], ['Wells Fargo']], CAT: [['開拓重工'], ['Caterpillar']],
+  SPY: [['標普500', '標普 500'], ['S&P 500']], VOO: [['標普500', '標普 500'], ['S&P 500']],
+  QQQ: [['那斯達克100', '納斯達克100', '那斯達克 100'], ['Nasdaq 100', 'Nasdaq-100']], TQQQ: [['那斯達克100', '納斯達克100'], ['Nasdaq 100', 'Nasdaq-100']],
+  SOXX: [['費半', '費城半導體'], ['Philadelphia Semiconductor', 'chip stocks']], SMH: [['費半', '費城半導體'], ['Philadelphia Semiconductor', 'chip stocks']],
+  SOXL: [['費半', '費城半導體'], ['Philadelphia Semiconductor', 'chip stocks']]
+};
+/* 這些代號本身是常見英文字或太短，只有寫成 $MU、(MU)、NASDAQ:MU 才算提到 */
+var AMBIGUOUS_TICKERS = ['ARM', 'ON', 'NOW', 'ALL', 'CAT', 'COST', 'KEY', 'DIS', 'LOW', 'FAST', 'PLAY', 'OPEN', 'REAL', 'GOOD', 'BIG', 'CAR', 'EAT', 'FUN', 'LIFE', 'MAIN', 'SAVE', 'TRUE', 'WELL', 'HAS', 'NICE', 'RUN', 'SHOP', 'ROCK', 'TEAM', 'ZONE', 'PEAK', 'BEST', 'GOLD', 'CASH'];
+
+function enCore_(n) {
+  var s = String(n || '').trim();
+  for (var i = 0; i < 3; i++) {   // 「Rocket Lab USA, Inc.」要拿掉兩層字尾
+    s = s.replace(/,?\s+(Corporation|Corp\.?|Incorporated|Inc\.?|Co\.,?\s*Ltd\.?|Company Limited|Limited|Ltd\.?|Holdings?|PLC|N\.V\.|S\.A\.|AG|SE|Class [A-C]|New|USA|Technologies|Technology|Group)$/i, '').trim();
   }
+  return s;
+}
+function uniq_(arr) { var seen = {}; return arr.filter(function (x) { var k = String(x).toLowerCase(); if (!x || seen[k]) return false; seen[k] = true; return true; }); }
+
+/** 一檔持股的新聞比對詞：中文名、英文名、代號、使用者關鍵字（前面加 - 為排除） */
+function newsTerms_(h, quoteName) {
+  var zh = [], en = [], excl = [];
+  String(h.keyword || '').split(/[,，、;；\n]+/).forEach(function (k) {
+    k = k.trim();
+    if (!k) return;
+    if (/^[-－]/.test(k)) { var x = k.replace(/^[-－]\s*/, ''); if (x) excl.push(x); return; }
+    (/[^\x00-\x7F]/.test(k) ? zh : en).push(k);
+  });
   if (h.market === 'TW') {
-    var name = h.name || '';
-    qs.push({ q: name ? '"' + name + '"' : h.code + ' 股票', lang: 'zh' });
+    var name = h.name || (quoteName && /[^\x00-\x7F]/.test(quoteName) ? quoteName : '');
+    if (name) { zh.push(name); var bare = name.replace(/[-－*＊]?\s*KY$/i, '').replace(/[*＊]/g, '').trim(); if (bare && bare !== name) zh.push(bare); }
   } else {
-    qs.push({ q: h.name && /[^\x00-\x7F]/.test(h.name) ? '"' + h.name + '" OR ' + h.code : h.code + ' 股', lang: 'zh' });
-    if (englishForUS) qs.push({ q: '"' + h.code + '" stock', lang: 'en' });
+    var d = US_NAMES[h.code];
+    if (d) { zh = zh.concat(d[0]); en = en.concat(d[1]); }
+    if (h.name) (/[^\x00-\x7F]/.test(h.name) ? zh : en).push(h.name);
+    if (!d && quoteName) { var c = enCore_(quoteName); if (c && c.length >= 3) en.push(c); }
+  }
+  return { zh: uniq_(zh), en: uniq_(en), excl: uniq_(excl), code: h.code, market: h.market };
+}
+
+function quoteOr_(arr) { return arr.map(function (t) { return '"' + String(t).replace(/"/g, '') + '"'; }).join(' OR '); }
+
+function newsQueries_(terms, englishForUS) {
+  var ex = terms.excl.map(function (x) { return ' -"' + x.replace(/"/g, '') + '"'; }).join('');
+  var qs = [];
+  if (terms.market === 'TW') {
+    var tw = terms.zh.concat(terms.en);
+    qs.push({ q: (tw.length ? quoteOr_(tw) : '"' + terms.code + '" 股票') + ex, lang: 'zh' });
+  } else {
+    var all = terms.zh.concat(terms.en);
+    qs.push({ q: (all.length ? quoteOr_(all) : '"' + terms.code + '"') + ex, lang: 'zh' });
+    if (englishForUS) qs.push({ q: (terms.en.length ? '(' + quoteOr_(terms.en) + ')' : '"' + terms.code + '"') + ' stock' + ex, lang: 'en' });
   }
   return qs;
+}
+
+function escRe_(s) { return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+
+/** 標題有沒有真的提到這家公司 */
+function titleMatches_(title, terms) {
+  var t = String(title || '');
+  var lower = t.toLowerCase();
+  for (var i = 0; i < terms.excl.length; i++) if (lower.indexOf(terms.excl[i].toLowerCase()) >= 0) return false;
+  for (var a = 0; a < terms.zh.length; a++) if (t.indexOf(terms.zh[a]) >= 0) return true;
+  for (var b = 0; b < terms.en.length; b++) {
+    if (new RegExp('(^|[^A-Za-z0-9])' + escRe_(terms.en[b]) + '([^A-Za-z0-9]|$)', 'i').test(t)) return true;
+  }
+  var code = terms.code;
+  if (terms.market === 'TW') return new RegExp('(^|[^0-9])' + escRe_(code) + '([^0-9]|$)').test(t);
+  var sym = escRe_(code).replace('\\.', '[.\\-]?');
+  // $MU、NASDAQ:MU 一定是代號；(MU)、裸寫 MU 只有在代號夠長、不是常見字時才算（避免 Manchester United (MU) 這類誤判）
+  if (new RegExp('(\\$' + sym + '|(NASDAQ|NYSE|Nasdaq|Nyse)\\s*[:：]\\s*' + sym + ')(?![A-Za-z])').test(t)) return true;
+  if (code.length >= 3 && AMBIGUOUS_TICKERS.indexOf(code) < 0 && new RegExp('(^|[^A-Za-z0-9$])' + sym + '([^A-Za-z0-9]|$)').test(t)) return true;
+  return false;
 }
 
 function newsUrl_(q, lang, days) {
@@ -516,27 +601,26 @@ function titleKey_(t) {
 }
 
 /** codes：逗號分隔；空字串＝全部持倉。days：1~7 */
-function getNews_(codesStr, daysParam, enParam) {
+function getNews_(codesStr, daysParam, enParam, strictParam) {
   var days = Math.max(1, Math.min(7, parseInt(daysParam, 10) || 1));
   var all = readHoldings_();
   var want = codesStr ? codesStr.split(',').map(function (s) { var n = normalizeCode_(s); return n && n.code; }).filter(Boolean) : null;
   var holdings = want ? all.filter(function (h) { return want.indexOf(h.code) >= 0; }) : all;
   var englishForUS = String(enParam) !== '0';
-  // 試算表沒填名稱的台股 → 用報價查到的公司名稱搜尋新聞（報價多半已在快取）
-  var noName = holdings.filter(function (h) { return !h.name && !h.keyword && h.market === 'TW'; });
-  if (noName.length) {
-    var qn = getQuotes_(noName);
-    noName.forEach(function (h) { if (qn[h.code] && qn[h.code].name && /[^\x00-\x7F]/.test(qn[h.code].name)) h.name = qn[h.code].name; });
-  }
+  var strict = String(strictParam) !== '0';
+  // 沒填名稱的台股、字典裡沒有的美股 → 用報價查到的公司名稱（報價多半已在快取）
+  var needName = holdings.filter(function (h) { return h.market === 'TW' ? !h.name : !US_NAMES[h.code]; });
+  var qn = needName.length ? getQuotes_(needName) : {};
 
   var result = {};
   var jobs = [];
   holdings.forEach(function (h) {
-    var qs = newsQueries_(h, englishForUS);
-    var key = 'n:' + days + ':' + Utilities.base64EncodeWebSafe(Utilities.computeDigest(Utilities.DigestAlgorithm.MD5, JSON.stringify(qs), Utilities.Charset.UTF_8));
+    var terms = newsTerms_(h, qn[h.code] && !qn[h.code].error ? qn[h.code].name : '');
+    var qs = newsQueries_(terms, englishForUS);
+    var key = 'n2:' + days + ':' + (strict ? 's' : 'a') + ':' + Utilities.base64EncodeWebSafe(Utilities.computeDigest(Utilities.DigestAlgorithm.MD5, JSON.stringify([qs, terms]), Utilities.Charset.UTF_8));
     var cached = cacheGet_(key);
     if (cached) { result[h.code] = cached; return; }
-    jobs.push({ h: h, qs: qs, key: key });
+    jobs.push({ h: h, qs: qs, key: key, terms: terms });
   });
 
   function runJobs(list, d) {
@@ -565,11 +649,17 @@ function getNews_(codesStr, daysParam, enParam) {
     });
     return per;
   }
+  function relevant(items, terms) {
+    var d = dedupe_(items);
+    if (!strict) return { items: d, dropped: 0 };
+    var keep = d.filter(function (it) { return titleMatches_(it.title, terms); });
+    return { items: keep, dropped: d.length - keep.length };
+  }
 
   var first = runJobs(jobs, days);
-  // 一天內不到 3 則 → 自動放寬到 7 天，避免冷門股一片空白
+  // 篩選後一天內不到 3 則 → 自動放寬到 7 天，避免冷門股一片空白
   var retryIdx = [];
-  if (days < 7) first.forEach(function (p, i) { if (p.errors < p.total && dedupe_(p.items).length < 3) retryIdx.push(i); });
+  if (days < 7) first.forEach(function (p, i) { if (p.errors < p.total && relevant(p.items, jobs[i].terms).items.length < 3) retryIdx.push(i); });
   var second = retryIdx.length ? runJobs(retryIdx.map(function (i) { return jobs[i]; }), 7) : [];
 
   jobs.forEach(function (job, i) {
@@ -580,9 +670,11 @@ function getNews_(codesStr, daysParam, enParam) {
       p = { items: p.items.concat(second[ri].items), errors: 0, total: second[ri].total };
       widened = true;
     }
-    var items = dedupe_(p.items).slice(0, 20);
+    var rel = relevant(p.items, job.terms);
     var entry = {
-      items: items,
+      items: rel.items.slice(0, 20),
+      filtered: rel.dropped,
+      terms: job.terms.zh.concat(job.terms.en),
       days: widened ? 7 : days,
       widened: widened,
       error: p.total > 0 && p.errors === p.total ? 'Google 新聞暫時無法連線' : null,
@@ -591,7 +683,7 @@ function getNews_(codesStr, daysParam, enParam) {
     result[job.h.code] = entry;
     if (!entry.error) cachePut_(job.key, entry, CACHE_NEWS_SEC);
   });
-  return { news: result, days: days };
+  return { news: result, days: days, strict: strict };
 }
 
 function dedupe_(items) {

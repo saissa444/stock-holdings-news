@@ -294,8 +294,8 @@ dialog::backdrop{background:rgba(10,16,30,.45)}
       </div>
       <div class="field">
         <label for="fKeyword">新聞關鍵字（選填）</label>
-        <input id="fKeyword" autocomplete="off" placeholder="例如 輝達">
-        <div class="hint">留空時，台股用公司名稱、美股用代號搜尋。美股建議填中文名（如 輝達、蘋果），中文新聞會更準。</div>
+        <input id="fKeyword" autocomplete="off" placeholder="例如：美光科技, -曼聯">
+        <div class="hint">平常留空即可：會自動用公司的中英文名稱搜尋，並只留下標題有提到公司的新聞。想補充或排除時，多個詞用逗號分隔，前面加「-」代表排除，例如：美光科技, -曼聯</div>
       </div>
       <div class="err hidden" id="eForm"></div>
     </div>
@@ -365,6 +365,7 @@ dialog::backdrop{background:rgba(10,16,30,.45)}
         <div class="hint">冷門股在範圍內不到 3 則時，會自動放寬到 7 天並標示。</div>
       </div>
       <label class="check"><input type="checkbox" id="sEn"><span>美股同時顯示英文新聞</span></label>
+      <label class="check"><input type="checkbox" id="sStrict"><span>只顯示標題有提到公司的新聞<br><span class="hint" style="color:var(--muted);font-size:12.5px">建議開啟。關閉後會列出 Google 新聞搜尋到的全部結果，可能混入不相關的新聞。</span></span></label>
 
       <div class="sect">顯示</div>
       <div class="field">
@@ -388,7 +389,7 @@ const LS = {
   set(k, v) { try { localStorage.setItem('shn:' + k, JSON.stringify(v)); } catch (e) { /* 私密瀏覽或空間不足：只是不記住 */ } },
   del(k) { try { localStorage.removeItem('shn:' + k); } catch (e) {} }
 };
-const DEFAULTS = { url: '', token: '', fees: true, discount: 10, days: 1, en: true, color: 'tw', sort: 'mv' };
+const DEFAULTS = { url: '', token: '', fees: true, discount: 10, days: 1, en: true, strict: true, color: 'tw', sort: 'mv' };
 let cfg = Object.assign({}, DEFAULTS, LS.get('cfg', {}));
 let data = LS.get('data', null);      // {holdings, quotes, fx, fetchedAt}
 let news = LS.get('news', null);      // {news, days, fetchedAt}
@@ -659,6 +660,11 @@ function newsItem(it, showStock) {
     it.lang === 'en' ? el('span', { class: 'tag', style: 'margin:0' }, '英文') : null);
   return el('a', { class: 'nitem', href: it.link, target: '_blank', rel: 'noopener noreferrer' }, el('h3', null, it.title), meta);
 }
+function filteredNote(n, compact) {
+  const names = (n.terms || []).slice(0, 4).join('、');
+  return el('p', { class: 'hsub', style: compact ? 'white-space:normal' : 'white-space:normal;margin:10px 14px 0' },
+    '已略過 ' + n.filtered + ' 則標題沒提到' + (names ? '「' + names + '」' : '這家公司') + '的新聞。漏掉相關新聞時，可在「編輯」補上新聞關鍵字。');
+}
 function dayLabel(ms) {
   if (!ms) return '時間不明';
   const d = new Date(ms); const t = new Date();
@@ -686,18 +692,27 @@ function renderNews() {
   if (newsFilter !== 'all') {
     const n = news.news[newsFilter];
     if (n && n.widened) list.append(el('div', { class: 'notice warn', style: 'margin:10px 14px' }, '最近新聞較少，已放寬到 7 天內。'));
+    if (n && n.filtered) list.append(filteredNote(n));
     if (n && n.error) list.append(el('div', { class: 'notice err', style: 'margin:10px 14px' }, n.error));
   } else {
     const errs = data.holdings.filter(h => news.news[h.code] && news.news[h.code].error).length;
     if (errs) list.append(el('div', { class: 'notice err', style: 'margin:10px 14px' }, errs + ' 檔股票的新聞暫時抓不到，稍後按右上角重新整理。'));
   }
-  if (!shown.length) { list.append(el('div', { class: 'empty' }, el('p', null, '這段期間沒有找到新聞。可以在持股的「編輯」設定新聞關鍵字。'))); return; }
+  if (!shown.length) {
+    const pending = loadingNews && (newsFilter === 'all' || !news.news[newsFilter]);
+    list.append(el('div', { class: 'empty' }, el('p', null, pending ? '正在整理新聞…' : '這段期間沒有找到新聞。可以在持股的「編輯」設定新聞關鍵字。')));
+    return;
+  }
   let cur = null;
   shown.forEach(it => {
     const lab = dayLabel(it.time);
     if (lab !== cur) { cur = lab; list.append(el('div', { class: 'day' }, lab)); }
     list.append(newsItem(it, newsFilter === 'all'));
   });
+  if (newsFilter === 'all') {
+    const skipped = data.holdings.reduce((sum, h) => sum + ((news.news[h.code] && news.news[h.code].filtered) || 0), 0);
+    if (skipped) list.append(el('p', { class: 'evnote' }, '已略過 ' + skipped + ' 則標題沒提到持股公司的新聞。點上方股票可看各檔略過幾則；設定裡可以關閉這個篩選。'));
+  }
 }
 
 /* ================= 畫面：時程 ================= */
@@ -851,7 +866,7 @@ async function refreshNews() {
   if (!cfg.url || loadingNews || !data || !data.holdings.length) return;
   loadingNews = true; renderAll();
   try {
-    const n = await call('GET', { action: 'news', days: String(cfg.days), en: cfg.en ? '1' : '0' });
+    const n = await call('GET', { action: 'news', days: String(cfg.days), en: cfg.en ? '1' : '0', strict: cfg.strict ? '1' : '0' });
     news = Object.assign(n, { fetchedAt: Date.now() });
     LS.set('news', news); newsError = null; lastNewsAt = Date.now();
   } catch (e) { newsError = '新聞讀取失敗：' + e.message; }
@@ -1025,6 +1040,7 @@ function openDetail(code) {
   else {
     if (n.error) dn.append(el('div', { class: 'notice err' }, n.error));
     if (n.widened) dn.append(el('p', { class: 'hsub' }, '最近新聞較少，已放寬到 7 天內。'));
+    if (n.filtered) dn.append(filteredNote(n, true));
     if (!n.items.length && !n.error) dn.append(el('p', { class: 'hsub' }, '這段期間沒有找到新聞。可以按「編輯」設定新聞關鍵字。'));
     n.items.forEach(it => dn.append(newsItem(it, false)));
   }
@@ -1054,7 +1070,7 @@ function openSettings() {
   $('#sCode').value = '';
   $('#sUrl').value = cfg.url; $('#sToken').value = cfg.token;
   $('#sFees').checked = !!cfg.fees; $('#sDiscount').value = cfg.discount;
-  $('#sDays').value = String(cfg.days); $('#sEn').checked = !!cfg.en; $('#sColor').value = cfg.color;
+  $('#sDays').value = String(cfg.days); $('#sEn').checked = !!cfg.en; $('#sStrict').checked = cfg.strict !== false; $('#sColor').value = cfg.color;
   $('#diag').replaceChildren(); showErr('#eSet', '');
   $('#btnShare').classList.toggle('hidden', !cfg.url);
   discHintText();
@@ -1098,8 +1114,8 @@ $('#formSettings').addEventListener('submit', async (ev) => {
   let disc = parseNum($('#sDiscount').value);
   if (!(disc > 0 && disc <= 10)) disc = 10;
   const changedConn = c.url !== cfg.url || c.token !== cfg.token;
-  const changedNews = String(cfg.days) !== $('#sDays').value || cfg.en !== $('#sEn').checked;
-  cfg = Object.assign({}, cfg, c, { fees: $('#sFees').checked, discount: disc, days: +$('#sDays').value, en: $('#sEn').checked, color: $('#sColor').value });
+  const changedNews = String(cfg.days) !== $('#sDays').value || cfg.en !== $('#sEn').checked || (cfg.strict !== false) !== $('#sStrict').checked;
+  cfg = Object.assign({}, cfg, c, { fees: $('#sFees').checked, discount: disc, days: +$('#sDays').value, en: $('#sEn').checked, strict: $('#sStrict').checked, color: $('#sColor').value });
   LS.set('cfg', cfg);
   closeDlg($('#dlgSettings'));
   if (changedConn) { data = null; news = null; events = null; LS.del('data'); LS.del('news'); LS.del('events'); dataError = null; dataErrorCode = null; }
