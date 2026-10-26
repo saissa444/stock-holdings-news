@@ -4,3 +4,4 @@ test/e2e.log
 test/node_modules/
 test/package*.json
 .DS_Store
+test/*.log
