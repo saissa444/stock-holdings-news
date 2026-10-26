@@ -7,6 +7,7 @@
  *   3. 美股報價：Yahoo Finance（query1 → query2 備援）
  *   4. 美元兌台幣匯率：Yahoo（TWD=X）→ open.er-api.com 備援
  *   5. 每檔股票的新聞：Google 新聞 RSS
+ *   7. 走勢圖：Yahoo 分鐘線＋每分鐘排程紀錄的證交所報價（台股 Yahoo 延遲 20 分鐘，用紀錄補上）
  *   6. 重要時程：台股法說會（公開資訊觀測站）、美股財報日與除息日（Yahoo）、
  *      台股除權息（證交所／櫃買預告表）、台股財報與月營收法定公告期限
  *
@@ -16,9 +17,10 @@
 var SHEET_HOLD = '持倉';
 var SHEET_INFO = '說明';
 var HEADERS = ['代號', '市場', '名稱', '股數', '平均成本', '新聞關鍵字', '備註'];
-var VERSION = '1.2.0';
+var VERSION = '1.3.0';
 
-var CACHE_QUOTE_SEC = 15;
+var CACHE_QUOTE_SEC = 15;        // 開盤中報價快取
+var CACHE_QUOTE_CLOSED_SEC = 600; // 收盤後報價快取（價格不會變，省額度）
 var CACHE_FX_SEC = 1800;
 var CACHE_NEWS_SEC = 600;
 var CACHE_EVENTS_SEC = 10800;   // 時程 3 小時
@@ -53,8 +55,33 @@ function setup() {
   ]);
   info.setColumnWidth(1, 110);
   info.setColumnWidth(2, 520);
-  Logger.log('設定完成。存取金鑰：' + token);
+  var rec = '';
+  try { ensureRecorder_(); rec = '已建立盤中紀錄排程（每分鐘）。'; }
+  catch (e) { rec = '盤中紀錄排程建立失敗：' + (e && e.message) + '。台股當日走勢最近 20 分鐘會缺資料。'; }
+  info.getRange('A5:B5').setValues([['盤中紀錄', rec]]);
+  Logger.log('設定完成。存取金鑰：' + token + '\n' + rec);
   return token;
+}
+
+/** 每分鐘排程：台股盤中紀錄證交所報價，給走勢圖用（Yahoo 台股延遲 20 分鐘） */
+function ensureRecorder_() {
+  var exists = ScriptApp.getProjectTriggers().some(function (t) { return t.getHandlerFunction() === 'recordTick'; });
+  if (!exists) ScriptApp.newTrigger('recordTick').timeBased().everyMinutes(1).create();
+}
+
+/** 不想要盤中紀錄時執行（台股當日走勢最近 20 分鐘會缺資料） */
+function removeRecorder() {
+  ScriptApp.getProjectTriggers().forEach(function (t) { if (t.getHandlerFunction() === 'recordTick') ScriptApp.deleteTrigger(t); });
+}
+
+/** 排程呼叫：只在台股開盤時間做事，其他時間立刻結束 */
+function recordTick() {
+  flushUsage_(true);
+  if (!marketOpen_('TW')) return;
+  var tw = readHoldings_().filter(function (h) { return h.market === 'TW'; });
+  if (!tw.length) return;
+  getQuotes_(tw, 20);   // 內部會把成交價寫進紀錄
+  cachePut_('rec:last', Date.now(), 21600);
 }
 
 /** 金鑰外流時執行：產生新金鑰，所有裝置要重新輸入 */
@@ -81,6 +108,9 @@ function doGet(e) {
       case 'news': return getNews_(String(p.codes || ''), p.days, p.en, p.strict);
       case 'lookup': return lookup_(String(p.code || ''));
       case 'events': return getEvents_();
+      case 'chart': return chart_(String(p.code || ''), String(p.range || '1d'));
+      case 'live': return live_(String(p.code || ''));
+      case 'spark': return spark_();
       case 'diagnose': return diagnose_();
       case 'ping': return { version: VERSION };
       default: throw userError_('未知的動作：' + p.action);
@@ -110,10 +140,12 @@ function doPost(e) {
 
 function handle_(fn) {
   var out;
+  QUOTA_NOTICE = null;
   try {
     var data = fn();
     out = { ok: true, data: data, serverTime: Date.now() };
   } catch (err) {
+    if (isQuotaErr_(err) && err.code !== 'quota') err = userError_(QUOTA_MSG, 'quota');
     out = {
       ok: false,
       error: (err && err.userMessage) || ('伺服器錯誤：' + (err && err.message ? err.message : String(err))),
@@ -123,6 +155,17 @@ function handle_(fn) {
   }
   return ContentService.createTextOutput(JSON.stringify(out)).setMimeType(ContentService.MimeType.JSON);
 }
+
+var QUOTA_MSG = '今天的 Google 免費連線額度（每天 20,000 次）已用完，約 24 小時後恢復；期間無法更新報價與新聞。';
+function isQuotaErr_(e) {
+  return !!e && (e.code === 'quota' || /too many times|Service invoked too many|Bandwidth quota|quota exceeded/i.test(String(e.message || e)));
+}
+/** 在吞掉例外的 catch 裡呼叫：額度用完的錯誤要往上丟，不能被當成「查不到資料」 */
+function rethrowQuota_(e) {
+  if (e && e.code === 'quota') throw e;            // 自己的安全上限：保留原訊息
+  if (isQuotaErr_(e)) throw userError_(QUOTA_MSG, 'quota');
+}
+var QUOTA_NOTICE = null;   // 這次請求中報價因額度暫停時的說明（回傳給前端顯示）
 
 function userError_(msg, code) {
   var e = new Error(msg);
@@ -201,6 +244,8 @@ function readHoldings_() {
       note: String(r[6] || '').trim()
     });
   }
+  cachePut_('codes:TW', list.filter(function (h) { return h.market === 'TW'; }).map(function (h) { return h.code; }), 21600);
+  cachePut_('codes:US', list.filter(function (h) { return h.market === 'US'; }).map(function (h) { return h.code; }), 21600);
   return list;
 }
 
@@ -294,7 +339,7 @@ function fetchTwseMis_(codes) {
     };
   });
   var resps;
-  try { resps = UrlFetchApp.fetchAll(reqs); } catch (e) { return out; }
+  try { resps = fetchAll_(reqs); } catch (e) { rethrowQuota_(e); return out; }
   resps.forEach(function (res) {
     if (res.getResponseCode() !== 200) return;
     var j;
@@ -349,7 +394,7 @@ function fetchYahoo_(items) {
       };
     });
     var resps;
-    try { resps = UrlFetchApp.fetchAll(reqs); } catch (e) { continue; }
+    try { resps = fetchAll_(reqs); } catch (e) { rethrowQuota_(e); continue; }
     var still = [];
     resps.forEach(function (res, idx) {
       var it = pending[idx];
@@ -390,46 +435,236 @@ function parseYahooChart_(j, it) {
   };
 }
 
-/** 取得所有持倉的報價：{code: quote | {error}} */
-function getQuotes_(holdings) {
-  var result = {};
-  var need = [];
+/* ===================== 連線總量與頻率控管 ===================== */
+/*
+ * 兩條硬性規則（不論開了幾台裝置）：
+ *   1. 證交所即時報價：所有台股持股合併成「一次」請求，最多每 5 秒一次；
+ *      新增股票等需要立刻查的情況，任何 5 秒內也最多 2 次（證交所限制是 5 秒 3 次）。
+ *   2. Google 每日連線額度（一般帳號 20,000 次）：自己計數，
+ *      超過 12,000 進入省額度模式（更新變慢），超過 16,000 只用快取、報價最多每分鐘更新一次。
+ */
+var BUDGET_SOFT = 12000;
+var BUDGET_HARD = 16000;
+var BUDGET_STOP = 19000;      // 任何 24 小時內到這個數字就完全停止對外連線（Google 上限 20,000）
+var GOOGLE_DAILY_LIMIT = 20000;
+
+/*
+ * 用量以「最近 24 小時」計算（Google 的額度是從第一次請求起算 24 小時，用滑動視窗才保證任何時段都不超過）。
+ * 每次連線先記在快取，最多每分鐘彙整到「每小時一格」的指令碼屬性（屬性寫入每天約 1,440 次，遠低於限制）。
+ */
+function hourIdx_(ms) { return Math.floor(ms / 3600e3); }
+function usageBuckets_() {
+  try { return JSON.parse(PropertiesService.getScriptProperties().getProperty('USAGE') || '{}'); } catch (e) { return {}; }
+}
+function flushUsage_(force) {
+  var now = Date.now();
+  var lastFlush = Number(cacheGet_('uf:flushAt')) || 0;
+  if (!force && now - lastFlush < 60000) return;
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(3000)) return;
+  try {
+    var pending = Number(cacheGet_('uf:pending')) || 0;
+    var b = usageBuckets_();
+    var h = hourIdx_(now);
+    if (pending) b[h] = (b[h] || 0) + pending;
+    Object.keys(b).forEach(function (k) { if (Number(k) < h - 25) delete b[k]; });
+    PropertiesService.getScriptProperties().setProperty('USAGE', JSON.stringify(b));
+    cachePut_('uf:pending', 0, 21600);
+    cachePut_('uf:flushAt', now, 21600);
+  } finally { lock.releaseLock(); }
+}
+/** 最近 24 小時的對外連線次數 */
+function usage_() {
+  var b = usageBuckets_(), h = hourIdx_(Date.now()), sum = Number(cacheGet_('uf:pending')) || 0;
+  Object.keys(b).forEach(function (k) { if (Number(k) > h - 24) sum += b[k]; });
+  return sum;
+}
+function countFetch_(n) {
+  if (usage_() + n > BUDGET_STOP) throw userError_(QUOTA_MSG_SELF, 'quota');
+  cachePut_('uf:pending', (Number(cacheGet_('uf:pending')) || 0) + n, 21600);
+  flushUsage_(false);
+}
+var QUOTA_MSG_SELF = '最近 24 小時的連線次數已達安全上限（19,000 次，Google 上限 20,000），暫停更新以免超過額度；用量降下來後會自動恢復。';
+function budgetLevel_() { var u = usage_(); return u >= BUDGET_HARD ? 2 : u >= BUDGET_SOFT ? 1 : 0; }
+function usageInfo_() { var u = usage_(); return { count: u, soft: BUDGET_SOFT, hard: BUDGET_HARD, stop: BUDGET_STOP, limit: GOOGLE_DAILY_LIMIT, level: u >= BUDGET_HARD ? 2 : u >= BUDGET_SOFT ? 1 : 0 }; }
+function fetchAll_(reqs) { countFetch_(reqs.length); return UrlFetchApp.fetchAll(reqs); }
+function fetch1_(url, opts) { countFetch_(1); return UrlFetchApp.fetch(url, opts); }
+
+/** 例行更新的最短間隔（毫秒） */
+function quoteGap_(market) {
+  var lv = budgetLevel_();
+  if (lv === 2) return 60000;
+  if (lv === 1) return 15000;
+  if (market === 'US' && Date.now() - (Number(cacheGet_('yq:fail')) || 0) < 600000) return 15000;  // Yahoo 批次查詢失敗、改逐檔查時放慢
+  return 5000;
+}
+/** 取得某來源的抓取權（跨所有請求、所有裝置）。urgent：有股票完全沒有報價（例如剛新增）。 */
+function takeSlot_(name, gapMs, urgent) {
+  for (var attempt = 0; attempt < 2; attempt++) {
+    var lock = LockService.getScriptLock();
+    if (!lock.tryLock(5000)) return false;
+    var wait = 0;
+    try {
+      var now = Date.now();
+      var hist = (cacheGet_('thr:' + name) || []).filter(function (t) { return now - t < 60000; });
+      var last = hist.length ? hist[hist.length - 1] : 0;
+      var in5 = hist.filter(function (t) { return now - t < 5000; });
+      var ok = urgent ? in5.length < 2 : now - last >= gapMs;
+      if (ok) { hist.push(now); cachePut_('thr:' + name, hist.slice(-5), 3600); return true; }
+      if (!urgent) return false;
+      wait = 5000 - (now - in5[0]) + 50;   // 等到 5 秒視窗裡空出位置
+    } finally { lock.releaseLock(); }
+    if (wait > 0 && wait <= 5100) Utilities.sleep(wait);
+  }
+  return false;
+}
+
+function parseYahooQuote_(r) {
+  if (!r || !r.symbol) return null;
+  var price = num_(r.regularMarketPrice);
+  if (price === null) return null;
+  var sym = String(r.symbol).toUpperCase();
+  var tw = /\.TWO?$/.test(sym);
+  var t = Number(r.regularMarketTime);
+  return {
+    code: tw ? sym.replace(/\.TWO?$/, '') : sym.replace('-', '.'),
+    market: tw ? 'TW' : (sym === 'TWD=X' ? 'FX' : 'US'),
+    exchange: r.exchange || r.fullExchangeName || '',
+    name: String(r.shortName || r.longName || '').trim(),
+    price: price,
+    priceType: 'trade',
+    prevClose: num_(r.regularMarketPreviousClose),
+    open: num_(r.regularMarketOpen),
+    high: num_(r.regularMarketDayHigh),
+    low: num_(r.regularMarketDayLow),
+    currency: r.currency || (tw ? 'TWD' : 'USD'),
+    time: isFinite(t) && t > 0 ? (t > 1e12 ? t : t * 1000) : null,
+    source: 'Yahoo'
+  };
+}
+/** Yahoo 一次查多檔（1 次連線）。失敗回傳 ok:false，由呼叫端改逐檔查 */
+function yahooQuoteBatch_(syms) {
+  var out = {};
+  if (!syms.length) return { quotes: out, ok: true };
+  var auth = yahooAuth_(false);
+  for (var attempt = 0; auth && attempt < 2; attempt++) {
+    var res;
+    try {
+      res = fetch1_('https://query1.finance.yahoo.com/v7/finance/quote?symbols=' + encodeURIComponent(syms.join(',')) + '&crumb=' + encodeURIComponent(auth.crumb),
+        { muteHttpExceptions: true, headers: { 'User-Agent': UA, 'Cookie': auth.cookie, 'Accept': 'application/json' } });
+    } catch (e) { rethrowQuota_(e); break; }
+    if (res.getResponseCode() === 401 && attempt === 0) { auth = yahooAuth_(true); continue; }
+    if (res.getResponseCode() !== 200) break;
+    try {
+      var list = JSON.parse(res.getContentText('UTF-8')).quoteResponse.result || [];
+      list.forEach(function (r) { var q = parseYahooQuote_(r); if (q) out[String(r.symbol).toUpperCase()] = q; });
+      return { quotes: out, ok: true };
+    } catch (e) { break; }
+  }
+  cachePut_('yq:fail', Date.now(), 3600);
+  return { quotes: out, ok: false };
+}
+
+/** 台股：證交所（即時）；證交所失敗時改用 Yahoo（延遲約 20 分鐘） */
+function refreshTw_(codes) {
+  var out = {};
+  var nf = cacheGet_('nf:TW') || {};
+  var misFailAt = Number(cacheGet_('mis:fail')) || 0;
+  if (Date.now() - misFailAt > 60000) {     // 證交所失敗後 1 分鐘內不再打（避免被當成攻擊）
+    out = fetchTwseMis_(codes);
+    if (!Object.keys(out).length) cachePut_('mis:fail', Date.now(), 600);
+  }
+  // 證交所查不到、且 10 分鐘內 Yahoo 也查不到的代號不再補查；證交所失敗時改用 Yahoo，但最多每分鐘一次（Yahoo 台股本來就延遲 20 分鐘）
+  var misOk = Object.keys(out).length > 0;
+  var miss = codes.filter(function (c) { return !out[c] && !(nf[c] && Date.now() - nf[c] < 600000); });
+  if (miss.length && !misOk) {
+    if (Date.now() - (Number(cacheGet_('tw:yfb')) || 0) < 60000) miss = miss.filter(function (c) { return !cacheGet_('q:TW:' + c); });
+    else cachePut_('tw:yfb', Date.now(), 3600);
+  }
+  if (miss.length) {
+    var yb = yahooQuoteBatch_([].concat.apply([], miss.map(function (c) { return [c + '.TW', c + '.TWO']; })));
+    var fromY = {};
+    if (yb.ok) {
+      miss.forEach(function (c) { var q = yb.quotes[c + '.TW'] || yb.quotes[c + '.TWO']; if (q) fromY[c] = q; });
+    } else {
+      var y1 = fetchYahoo_(miss.map(function (c) { return { key: c, symbol: c + '.TW', market: 'TW' }; }));
+      Object.keys(y1).forEach(function (k) { fromY[k] = y1[k]; });
+      var miss2 = miss.filter(function (c) { return !fromY[c]; });
+      if (miss2.length) {
+        var y2 = fetchYahoo_(miss2.map(function (c) { return { key: c, symbol: c + '.TWO', market: 'TW' }; }));
+        Object.keys(y2).forEach(function (k) { fromY[k] = y2[k]; });
+      }
+    }
+    Object.keys(fromY).forEach(function (c) { fromY[c].delayed = true; out[c] = fromY[c]; });
+    miss.forEach(function (c) { if (!fromY[c]) nf[c] = Date.now(); else delete nf[c]; });
+    cachePut_('nf:TW', nf, 3600);
+  }
+  return out;
+}
+
+/** 美股：Yahoo 一次查全部持股（順便更新美元匯率）；失敗時逐檔查 */
+function refreshUs_(codes) {
+  var out = {};
+  var nf = cacheGet_('nf:US') || {};
+  var syms = codes.map(function (c) { return yahooSymbol_(c, 'US'); });
+  var yb = yahooQuoteBatch_(syms.concat(['TWD=X']));
+  if (yb.ok) {
+    codes.forEach(function (c, i) { var q = yb.quotes[syms[i].toUpperCase()]; if (q) { q.code = c; out[c] = q; } });
+    var f = yb.quotes['TWD=X'];
+    if (f && f.price > 20 && f.price < 60) cachePut_('fx:USDTWD', { rate: f.price, time: f.time, source: 'Yahoo' }, CACHE_FX_SEC);
+  } else {
+    out = fetchYahoo_(codes.map(function (c, i) { return { key: c, symbol: syms[i], market: 'US' }; }));
+  }
+  codes.forEach(function (c) { if (!out[c]) nf[c] = Date.now(); else delete nf[c]; });
+  cachePut_('nf:US', nf, 3600);
+  return out;
+}
+
+/** 取得持倉報價：{code: quote | {error}}。maxAgeSec：可接受的快取秒數（預設：開盤 15 秒、收盤 10 分鐘） */
+function getQuotes_(holdings, maxAgeSec) {
+  var now = Date.now(), result = {};
+  var need = { TW: [], US: [] }, urgent = { TW: false, US: false };
   holdings.forEach(function (h) {
     var c = cacheGet_('q:' + h.market + ':' + h.code);
-    if (c) result[h.code] = c; else need.push(h);
-  });
-  var tw = need.filter(function (h) { return h.market === 'TW'; });
-  var us = need.filter(function (h) { return h.market === 'US'; });
-
-  var twq = fetchTwseMis_(tw.map(function (h) { return h.code; }));
-  var twMissing = tw.filter(function (h) { return !twq[h.code]; });
-  // MIS 失敗 → Yahoo 上市(.TW)；再不行 → 上櫃(.TWO)
-  if (twMissing.length) {
-    var y1 = fetchYahoo_(twMissing.map(function (h) { return { key: h.code, symbol: h.code + '.TW', market: 'TW' }; }));
-    Object.keys(y1).forEach(function (k) { twq[k] = y1[k]; });
-    var miss2 = twMissing.filter(function (h) { return !twq[h.code]; });
-    if (miss2.length) {
-      var y2 = fetchYahoo_(miss2.map(function (h) { return { key: h.code, symbol: h.code + '.TWO', market: 'TW' }; }));
-      Object.keys(y2).forEach(function (k) { twq[k] = y2[k]; });
-    }
-  }
-  var usq = fetchYahoo_(us.map(function (h) { return { key: h.code, symbol: yahooSymbol_(h.code, 'US'), market: 'US' }; }));
-
-  need.forEach(function (h) {
-    var q = h.market === 'TW' ? twq[h.code] : usq[h.code];
-    if (q) {
-      result[h.code] = q;
-      cachePut_('q:' + h.market + ':' + h.code, q, CACHE_QUOTE_SEC);
-    } else {
-      result[h.code] = { code: h.code, market: h.market, error: '查不到報價（代號錯誤或資料來源暫時無法連線）' };
+    var maxAge = maxAgeSec != null ? maxAgeSec : (marketOpen_(h.market, now) ? CACHE_QUOTE_SEC : CACHE_QUOTE_CLOSED_SEC);
+    if (c) result[h.code] = c;                 // 先用快取，抓到新的再覆蓋
+    if (!c || !c._at || now - c._at > maxAge * 1000) {
+      // 10 分鐘內查過且查不到的代號（代號錯誤、暫停交易）：先不重查，避免每次請求都多打一次
+      var nf = cacheGet_('nf:' + h.market) || {};
+      if (!c && nf[h.code] && now - nf[h.code] < 600000) return;
+      need[h.market].push(h.code);
+      if (!c) urgent[h.market] = true;   // 完全沒有報價（剛新增）才算急件
     }
   });
+  var forRec = [];
+  ['TW', 'US'].forEach(function (mk) {
+    if (!need[mk].length) return;
+    // 一律連同其他持股一起查：同樣 1 次連線，其他裝置接下來 5 秒都直接用快取
+    var codes = need[mk].concat((cacheGet_('codes:' + mk) || []).filter(function (c) { return need[mk].indexOf(c) < 0; }));
+    if (usage_() + 2 > BUDGET_STOP) { QUOTA_NOTICE = QUOTA_MSG_SELF; return; }   // 已到安全上限：只用快取
+    if (!takeSlot_('q' + mk, quoteGap_(mk), urgent[mk])) return;
+    var fresh;
+    try { fresh = mk === 'TW' ? refreshTw_(codes) : refreshUs_(codes); }
+    catch (e) { if (e && e.code === 'quota') { QUOTA_NOTICE = e.userMessage; return; } throw e; }
+    Object.keys(fresh).forEach(function (code) {
+      var q = fresh[code];
+      q._at = Date.now();
+      cachePut_('q:' + mk + ':' + code, q, CACHE_QUOTE_CLOSED_SEC);
+      if (result.hasOwnProperty(code) || need[mk].indexOf(code) >= 0) result[code] = q;
+      if (mk === 'TW' && q.source === 'TWSE') forRec.push(q);
+    });
+  });
+  holdings.forEach(function (h) {
+    if (!result[h.code]) result[h.code] = { code: h.code, market: h.market, error: '查不到報價（代號錯誤或資料來源暫時無法連線）' };
+  });
+  if (forRec.length) recAppend_(forRec);
   return result;
 }
 
 function getFx_() {
   var c = cacheGet_('fx:USDTWD');
   if (c) return c;
+  if (usage_() + 2 > BUDGET_STOP) return null;
   var fx = null;
   var y = fetchYahoo_([{ key: 'FX', symbol: 'TWD=X', market: 'FX' }]);
   if (y.FX && y.FX.price > 20 && y.FX.price < 60) {
@@ -437,13 +672,13 @@ function getFx_() {
   }
   if (!fx) {
     try {
-      var res = UrlFetchApp.fetch('https://open.er-api.com/v6/latest/USD', { muteHttpExceptions: true });
+      var res = fetch1_('https://open.er-api.com/v6/latest/USD', { muteHttpExceptions: true });
       if (res.getResponseCode() === 200) {
         var j = JSON.parse(res.getContentText('UTF-8'));
         var r = j && j.rates && Number(j.rates.TWD);
         if (r > 20 && r < 60) fx = { rate: r, time: (Number(j.time_last_update_unix) || 0) * 1000 || null, source: 'ExchangeRate-API' };
       }
-    } catch (e) { /* 兩個來源都失敗 → 回傳 null，前端提示 */ }
+    } catch (e) { rethrowQuota_(e); /* 兩個來源都失敗 → 回傳 null，前端提示 */ }
   }
   if (fx) cachePut_('fx:USDTWD', fx, CACHE_FX_SEC);
   return fx;
@@ -456,7 +691,9 @@ function getData_() {
   return {
     holdings: holdings.map(function (h) { delete h.row; return h; }),
     quotes: quotes,
-    fx: hasUS ? getFx_() : (cacheGet_('fx:USDTWD') || null),
+    fx: hasUS ? (function () { try { return getFx_(); } catch (e) { if (e && e.code === 'quota') { QUOTA_NOTICE = e.userMessage; return null; } throw e; } })() : (cacheGet_('fx:USDTWD') || null),
+    usage: usageInfo_(),
+    notice: QUOTA_NOTICE,
     version: VERSION
   };
 }
@@ -620,6 +857,7 @@ function getNews_(codesStr, daysParam, enParam, strictParam) {
     var key = 'n2:' + days + ':' + (strict ? 's' : 'a') + ':' + Utilities.base64EncodeWebSafe(Utilities.computeDigest(Utilities.DigestAlgorithm.MD5, JSON.stringify([qs, terms]), Utilities.Charset.UTF_8));
     var cached = cacheGet_(key);
     if (cached) { result[h.code] = cached; return; }
+    if (budgetLevel_() === 2) { result[h.code] = { items: [], filtered: 0, terms: [], days: days, widened: false, error: '省額度模式：新聞暫停更新', fetchedAt: Date.now() }; return; }
     jobs.push({ h: h, qs: qs, key: key, terms: terms });
   });
 
@@ -637,8 +875,8 @@ function getNews_(codesStr, daysParam, enParam, strictParam) {
     var resps = [];
     // Google 新聞同時打太多會被擋，分批 10 個
     for (var i = 0; i < reqs.length; i += 10) {
-      try { resps = resps.concat(UrlFetchApp.fetchAll(reqs.slice(i, i + 10))); }
-      catch (e) { for (var k = i; k < Math.min(i + 10, reqs.length); k++) resps.push(null); }
+      try { resps = resps.concat(fetchAll_(reqs.slice(i, i + 10))); }
+      catch (e) { rethrowQuota_(e); for (var k = i; k < Math.min(i + 10, reqs.length); k++) resps.push(null); }
     }
     resps.forEach(function (res, idx) {
       var p = per[map[idx].ji];
@@ -681,7 +919,8 @@ function getNews_(codesStr, daysParam, enParam, strictParam) {
       fetchedAt: Date.now()
     };
     result[job.h.code] = entry;
-    if (!entry.error) cachePut_(job.key, entry, CACHE_NEWS_SEC);
+    // 盤中 10 分鐘、收盤後 30 分鐘（新聞量少，也省額度）
+    if (!entry.error) cachePut_(job.key, entry, marketOpen_('TW') || marketOpen_('US') ? CACHE_NEWS_SEC : 1800);
   });
   return { news: result, days: days, strict: strict };
 }
@@ -704,7 +943,7 @@ function diagnose_() {
   function probe(name, url) {
     var t0 = Date.now();
     try {
-      var res = UrlFetchApp.fetch(url, { muteHttpExceptions: true, headers: { 'User-Agent': UA } });
+      var res = fetch1_(url, { muteHttpExceptions: true, headers: { 'User-Agent': UA } });
       var code = res.getResponseCode();
       var body = res.getContentText('UTF-8');
       var ok = code === 200;
@@ -733,6 +972,8 @@ function diagnose_() {
     version: VERSION,
     checks: [
       { name: '持倉試算表', ok: sheetOk, detail: sheetDetail, ms: 0 },
+      recorderStatus_(),
+      (function () { var u = usageInfo_(); return { name: '今日 Google 連線用量', ok: u.level < 2, detail: u.count.toLocaleString() + ' 次（上限 ' + u.limit.toLocaleString() + '；' + (u.level === 2 ? '已進入只用快取模式' : u.level === 1 ? '已進入省額度模式' : '正常') + '）', ms: 0 }; })(),
       probe('證交所 MIS', 'https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=' + encodeURIComponent('tse_2330.tw') + '&json=1&delay=0'),
       probe('Yahoo（台股備援）', 'https://query1.finance.yahoo.com/v8/finance/chart/2330.TW?range=1d&interval=1d'),
       probe('Yahoo（美股）', 'https://query1.finance.yahoo.com/v8/finance/chart/AAPL?range=1d&interval=1d'),
@@ -895,9 +1136,10 @@ function confEvents_(stocks, quotes, today) {
     });
   });
   var resps = [];
-  for (var i = 0; i < reqs.length; i += 6) {   // 觀測站有防爬限制，一次最多 6 個
-    try { resps = resps.concat(UrlFetchApp.fetchAll(reqs.slice(i, i + 6))); }
-    catch (e) { for (var k = i; k < Math.min(i + 6, reqs.length); k++) resps.push(null); }
+  for (var i = 0; i < reqs.length; i += 2) {   // 觀測站有防爬限制：一次 2 個、間隔 1.5 秒（時程 3 小時才查一次）
+    if (i) Utilities.sleep(1500);
+    try { resps = resps.concat(fetchAll_(reqs.slice(i, i + 2))); }
+    catch (e) { rethrowQuota_(e); for (var k = i; k < Math.min(i + 2, reqs.length); k++) resps.push(null); }
   }
   var fails = 0, seen = {};
   resps.forEach(function (res, idx) {
@@ -930,8 +1172,8 @@ function exdivTwEvents_(holdings, today) {
   ];
   var resps;
   try {
-    resps = UrlFetchApp.fetchAll(srcs.map(function (s) { return { url: s.url, muteHttpExceptions: true, headers: { 'User-Agent': UA, 'Accept': 'application/json' } }; }));
-  } catch (e) { return { events: [], status: { ok: false, detail: '除權息預告表暫時無法連線' } }; }
+    resps = fetchAll_(srcs.map(function (s) { return { url: s.url, muteHttpExceptions: true, headers: { 'User-Agent': UA, 'Accept': 'application/json' } }; }));
+  } catch (e) { rethrowQuota_(e); return { events: [], status: { ok: false, detail: '除權息預告表暫時無法連線' } }; }
   resps.forEach(function (res, i) {
     var s = srcs[i];
     var arr = null;
@@ -961,21 +1203,21 @@ function yahooAuth_(force) {
   var cookie = '';
   ['https://fc.yahoo.com', 'https://finance.yahoo.com/'].some(function (u) {
     try {
-      var r = UrlFetchApp.fetch(u, { muteHttpExceptions: true, followRedirects: false, headers: { 'User-Agent': UA } });
+      var r = fetch1_(u, { muteHttpExceptions: true, followRedirects: false, headers: { 'User-Agent': UA } });
       var h = r.getAllHeaders()['Set-Cookie'];
       var list = Array.isArray(h) ? h : h ? [h] : [];
       cookie = list.map(function (x) { return String(x).split(';')[0]; }).filter(function (x) { return /=/.test(x); }).join('; ');
-    } catch (e) { cookie = ''; }
+    } catch (e) { rethrowQuota_(e); cookie = ''; }
     return !!cookie;
   });
   if (!cookie) return null;
   var crumb = '';
   ['https://query1.finance.yahoo.com/v1/test/getcrumb', 'https://query2.finance.yahoo.com/v1/test/getcrumb'].some(function (u) {
     try {
-      var r = UrlFetchApp.fetch(u, { muteHttpExceptions: true, headers: { 'User-Agent': UA, 'Cookie': cookie } });
+      var r = fetch1_(u, { muteHttpExceptions: true, headers: { 'User-Agent': UA, 'Cookie': cookie } });
       var t = r.getContentText().trim();
       if (r.getResponseCode() === 200 && t && t.length < 40 && !/[<{\s]/.test(t)) crumb = t;
-    } catch (e) { crumb = ''; }
+    } catch (e) { rethrowQuota_(e); crumb = ''; }
     return !!crumb;
   });
   if (!crumb) return null;
@@ -1002,7 +1244,7 @@ function usEvents_(stocks, today) {
   var auth = yahooAuth_(false);
   if (!auth) return { events: [], status: { ok: false, detail: 'Yahoo 財報日資料暫時無法取得' } };
   function fetchAllWith(a) {
-    return UrlFetchApp.fetchAll(stocks.map(function (h) {
+    return fetchAll_(stocks.map(function (h) {
       return { url: 'https://query2.finance.yahoo.com/v10/finance/quoteSummary/' + encodeURIComponent(yahooSymbol_(h.code, 'US')) +
         '?modules=calendarEvents,defaultKeyStatistics&crumb=' + encodeURIComponent(a.crumb),
         muteHttpExceptions: true, headers: { 'User-Agent': UA, 'Cookie': a.cookie } };
@@ -1015,7 +1257,7 @@ function usEvents_(stocks, today) {
       auth = yahooAuth_(true);
       if (auth) resps = fetchAllWith(auth);
     }
-  } catch (e) { return { events: [], status: { ok: false, detail: 'Yahoo 財報日資料暫時無法取得' } }; }
+  } catch (e) { rethrowQuota_(e); return { events: [], status: { ok: false, detail: 'Yahoo 財報日資料暫時無法取得' } }; }
   var fails = 0;
   resps.forEach(function (res, i) {
     var h = stocks[i];
@@ -1069,6 +1311,7 @@ function getEvents_() {
   var key = 'ev:' + ymd_(today) + ':' + Utilities.base64EncodeWebSafe(Utilities.computeDigest(Utilities.DigestAlgorithm.MD5, holdings.map(function (h) { return h.market + h.code; }).sort().join(','), Utilities.Charset.UTF_8));
   var cached = cacheGet_(key);
   if (cached) return cached;
+  if (budgetLevel_() === 2) return { events: [], sources: { saving: { ok: false, detail: '省額度模式：時程暫停更新' } }, today: ymd_(today), fetchedAt: Date.now() };
 
   var tw = holdings.filter(function (h) { return h.market === 'TW'; });
   var twStocks = tw.filter(function (h) { return !isEtf_(h.code); });
@@ -1096,7 +1339,7 @@ function getEvents_() {
 function probeMops_() {
   var t0 = Date.now();
   try {
-    var res = UrlFetchApp.fetch(mopsConfReq_('2330', 'sii', tpeToday_().getUTCFullYear() - 1911).url, mopsConfReq_('2330', 'sii', tpeToday_().getUTCFullYear() - 1911));
+    var res = fetch1_(mopsConfReq_('2330', 'sii', tpeToday_().getUTCFullYear() - 1911).url, mopsConfReq_('2330', 'sii', tpeToday_().getUTCFullYear() - 1911));
     var list = res.getResponseCode() === 200 ? parseMopsConf_(res.getContentText('UTF-8')) : null;
     return { name: '法說會（觀測站）', ok: list !== null, detail: list === null ? ('無法讀取（HTTP ' + res.getResponseCode() + '）') : ('台積電今年 ' + list.length + ' 場'), ms: Date.now() - t0 };
   } catch (e) { return { name: '法說會（觀測站）', ok: false, detail: String(e && e.message || e).slice(0, 120), ms: Date.now() - t0 }; }
@@ -1107,9 +1350,262 @@ function probeYahooCal_() {
   var a = yahooAuth_(true);
   if (!a) return { name: 'Yahoo 財報日', ok: false, detail: '取不到 Yahoo 驗證碼', ms: Date.now() - t0 };
   try {
-    var res = UrlFetchApp.fetch('https://query2.finance.yahoo.com/v10/finance/quoteSummary/AAPL?modules=calendarEvents&crumb=' + encodeURIComponent(a.crumb), { muteHttpExceptions: true, headers: { 'User-Agent': UA, 'Cookie': a.cookie } });
+    var res = fetch1_('https://query2.finance.yahoo.com/v10/finance/quoteSummary/AAPL?modules=calendarEvents&crumb=' + encodeURIComponent(a.crumb), { muteHttpExceptions: true, headers: { 'User-Agent': UA, 'Cookie': a.cookie } });
     var j = JSON.parse(res.getContentText('UTF-8'));
     var e = j.quoteSummary.result[0].calendarEvents.earnings.earningsDate;
     return { name: 'Yahoo 財報日', ok: !!(e && e.length), detail: e && e.length ? ('AAPL ' + e[0].fmt) : '沒有資料', ms: Date.now() - t0 };
   } catch (err) { return { name: 'Yahoo 財報日', ok: false, detail: String(err && err.message || err).slice(0, 120), ms: Date.now() - t0 }; }
+}
+
+/* ===================== 走勢圖 ===================== */
+
+var REC_TTL = 21600;          // 紀錄保留 6 小時（CacheService 上限），收盤後晚上改用 Yahoo 完整資料
+var REC_MAX = 3600;
+var CHART_RANGES = {
+  '1d': { range: '1d', interval: '1m', ttl: 120 },
+  '5d': { range: '5d', interval: '5m', ttl: 600 },
+  '1mo': { range: '1mo', interval: '60m', ttl: 1800 },
+  '6mo': { range: '6mo', interval: '1d', ttl: 3600 },
+  '1y': { range: '1y', interval: '1d', ttl: 3600 },
+  '5y': { range: '5y', interval: '1wk', ttl: 21600 }
+};
+
+function tpeParts_(ms) {
+  var d = new Date(ms + 8 * 3600e3);
+  return { iso: ymd_(d), wd: d.getUTCDay(), mins: d.getUTCHours() * 60 + d.getUTCMinutes() };
+}
+/** 開盤時間（未排除國定假日）：台股 09:00–13:35（含收盤撮合），美股美東 09:30–16:05 */
+function marketOpen_(market, ms) {
+  ms = ms || Date.now();
+  if (market === 'TW') {
+    var p = tpeParts_(ms);
+    return p.wd >= 1 && p.wd <= 5 && p.mins >= 540 && p.mins <= 815;
+  }
+  var n = nyParts_(ms);
+  var wd = new Date(Date.parse(n.iso + 'T00:00:00Z')).getUTCDay();
+  var m = n.hour * 60 + n.minute;
+  return wd >= 1 && wd <= 5 && m >= 570 && m <= 965;
+}
+/** 台股某日 09:00–13:30（台北）的毫秒區間 */
+function twSession_(iso) {
+  var base = Date.parse(iso + 'T00:00:00Z') - 8 * 3600e3;
+  return { start: base + 9 * 3600e3, end: base + 13.5 * 3600e3 };
+}
+
+function recKey_(code, iso) { return 'rec:' + iso + ':' + code; }
+/** 把證交所的成交價寫進當日紀錄（只記有成交的快照，同一筆快照不重複記） */
+function recAppend_(quotes) {
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(1500)) return;   // 搶不到鎖就這次不記，不拖慢回應
+  try {
+    quotes.forEach(function (q) {
+      if (!q || q.market !== 'TW' || !q.time || q.priceType !== 'trade') return;
+      var key = recKey_(q.code, tpeParts_(q.time).iso);
+      var arr = cacheGet_(key) || [];
+      var t = Math.floor(q.time / 1000);
+      if (arr.length && arr[arr.length - 1][0] >= t) return;
+      arr.push([t, q.price]);
+      if (arr.length > REC_MAX) arr = thinRec_(arr);
+      cachePut_(key, arr, REC_TTL);
+    });
+  } finally { lock.releaseLock(); }
+}
+/** 紀錄太多時：最近 1200 筆保留，較早的每分鐘只留一筆 */
+function thinRec_(arr) {
+  var keep = arr.slice(-1200), old = arr.slice(0, -1200), out = [], lastMin = -1;
+  old.forEach(function (p) { var m = Math.floor(p[0] / 60); if (m !== lastMin) { out.push(p); lastMin = m; } });
+  return out.concat(keep);
+}
+
+/** 依時間分桶，每桶保留最低與最高點（線的形狀不會失真） */
+function downsample_(pts, maxPts) {
+  if (pts.length <= maxPts) return pts;
+  var buckets = Math.floor(maxPts / 2), size = pts.length / buckets, out = [];
+  for (var b = 0; b < buckets; b++) {
+    var seg = pts.slice(Math.floor(b * size), Math.floor((b + 1) * size));
+    if (!seg.length) continue;
+    var lo = seg[0], hi = seg[0];
+    seg.forEach(function (p) { if (p[1] < lo[1]) lo = p; if (p[1] > hi[1]) hi = p; });
+    if (lo === hi) out.push(lo); else if (lo[0] < hi[0]) out.push(lo, hi); else out.push(hi, lo);
+  }
+  var last = pts[pts.length - 1];
+  if (out[out.length - 1] !== last) out.push(last);
+  return out;
+}
+
+function parseYahooBars_(j) {
+  var r = j && j.chart && j.chart.result && j.chart.result[0];
+  if (!r || !r.meta) return null;
+  var ts = r.timestamp || [];
+  var closes = (r.indicators && r.indicators.quote && r.indicators.quote[0] && r.indicators.quote[0].close) || [];
+  var pts = [];
+  for (var i = 0; i < ts.length; i++) {
+    var c = closes[i];
+    if (c != null && isFinite(c) && c > 0) pts.push([ts[i], Math.round(c * 10000) / 10000]);
+  }
+  var m = r.meta;
+  var periods = [];
+  (m.tradingPeriods || []).forEach(function (row) {
+    (Array.isArray(row) ? row : [row]).forEach(function (p) { if (p && p.start && p.end) periods.push([p.start, p.end]); });
+  });
+  if (!periods.length && m.currentTradingPeriod && m.currentTradingPeriod.regular) periods.push([m.currentTradingPeriod.regular.start, m.currentTradingPeriod.regular.end]);
+  return {
+    points: pts,
+    prevClose: num_(m.previousClose) || num_(m.chartPreviousClose),
+    chartPrevClose: num_(m.chartPreviousClose),
+    periods: periods,
+    currency: m.currency || '',
+    exchange: m.exchangeName || ''
+  };
+}
+
+/** 一次抓多個 Yahoo 走勢（有快取就不抓）。items: [{sym, rk}] → {sym|rk: bars | null} */
+function yahooBarsMany_(items) {
+  // 收盤後的當日走勢不會再變：快取 6 小時；省額度模式下其他區間快取加長
+  var lv = budgetLevel_();
+  var out = {}, need = [];
+  items.forEach(function (it) {
+    var key = 'ch:' + it.rk + ':' + it.sym;
+    var c = cacheGet_(key);
+    if (c) out[it.sym + '|' + it.rk] = c; else need.push(it);
+  });
+  var hosts = ['https://query1.finance.yahoo.com', 'https://query2.finance.yahoo.com'];
+  for (var h = 0; h < hosts.length && need.length; h++) {
+    var R = need.map(function (it) {
+      var cfg = CHART_RANGES[it.rk];
+      return { url: hosts[h] + '/v8/finance/chart/' + encodeURIComponent(it.sym) + '?range=' + cfg.range + '&interval=' + cfg.interval + '&includePrePost=false',
+        muteHttpExceptions: true, headers: { 'User-Agent': UA, 'Accept': 'application/json' } };
+    });
+    var resps;
+    try { resps = fetchAll_(R); } catch (e) { rethrowQuota_(e); continue; }
+    var still = [];
+    resps.forEach(function (res, i) {
+      var it = need[i], bars = null;
+      if (res.getResponseCode() === 200) { try { bars = parseYahooBars_(JSON.parse(res.getContentText('UTF-8'))); } catch (e) { bars = null; } }
+      if (bars) {
+        out[it.sym + '|' + it.rk] = bars;
+        var ttl = CHART_RANGES[it.rk].ttl;
+        if (it.rk === '1d' && it.market && !marketOpen_(it.market)) ttl = 21600;
+        else if (lv) ttl = Math.min(21600, ttl * 3);
+        cachePut_('ch:' + it.rk + ':' + it.sym, bars, ttl);
+      }
+      else if (res.getResponseCode() === 404) out[it.sym + '|' + it.rk] = null;
+      else still.push(it);
+    });
+    need = still;
+  }
+  return out;
+}
+
+function isOtc_(q) { return !!q && (q.exchange === 'OTC' || /^TWO$/i.test(q.exchange)); }
+function yahooSymFor_(h, q) { return h.market === 'TW' ? h.code + (isOtc_(q) ? '.TWO' : '.TW') : yahooSymbol_(h.code, 'US'); }
+
+/** 組出一檔股票某區間的走勢。bars：yahooBarsMany_ 的結果（可能是 null）；q：報價 */
+function buildChart_(h, rk, bars, q) {
+  var live = q && !q.error ? q : null;
+  var pts = bars ? bars.points.map(function (p) { return [p[0] * 1000, p[1]]; }) : [];
+  var res = { code: h.code, market: h.market, range: rk, points: [], ref: null, refLabel: '', start: null, end: null,
+    currency: h.market === 'TW' ? 'TWD' : 'USD', last: live ? { price: live.price, time: live.time, priceType: live.priceType } : null,
+    gap: false, recorded: 0, open: marketOpen_(h.market) };
+
+  if (rk === '1d') {
+    if (h.market === 'TW') {
+      var lastYahooDay = pts.length ? tpeParts_(pts[pts.length - 1][0]).iso : null;
+      var day = live && live.time ? tpeParts_(live.time).iso : lastYahooDay;
+      if (!day) day = tpeParts_(Date.now()).iso;
+      var ses = twSession_(day);
+      pts = pts.filter(function (p) { return p[0] >= ses.start && p[0] <= ses.end + 60e3; });
+      var rec = (cacheGet_(recKey_(h.code, day)) || []).map(function (p) { return [p[0] * 1000, p[1]]; });
+      res.recorded = rec.length;
+      if (rec.length) pts = pts.filter(function (p) { return p[0] < rec[0][0]; }).concat(rec);
+      if (live && live.time && live.priceType === 'trade' && tpeParts_(live.time).iso === day && (!pts.length || live.time > pts[pts.length - 1][0])) pts.push([live.time, live.price]);
+      res.start = ses.start; res.end = ses.end;
+      res.ref = live && live.prevClose && live.time && tpeParts_(live.time).iso === day ? live.prevClose : (bars && bars.prevClose);
+      // 盤中但排程最近 3 分鐘沒跑：Yahoo 延遲 20 分鐘的那段會是空的
+      var recLast = Number(cacheGet_('rec:last')) || 0;
+      if (res.open && day === tpeParts_(Date.now()).iso && Date.now() - recLast > 3 * 60e3) res.gap = true;
+    } else {
+      var lastT = pts.length ? pts[pts.length - 1][0] / 1000 : null;
+      var per = bars && bars.periods.filter(function (p) { return lastT != null && lastT >= p[0] - 60 && lastT <= p[1] + 60; })[0];
+      if (!per && bars && bars.periods.length) per = bars.periods[bars.periods.length - 1];
+      if (per) { res.start = per[0] * 1000; res.end = per[1] * 1000; }
+      else if (pts.length) { res.start = pts[0][0]; res.end = pts[pts.length - 1][0]; }
+      if (live && live.time && res.start && live.time >= res.start && live.time <= res.end + 300e3 && (!pts.length || live.time > pts[pts.length - 1][0])) pts.push([Math.min(live.time, res.end), live.price]);
+      res.ref = bars && bars.prevClose;
+    }
+    res.refLabel = '昨收';
+  } else {
+    if (live && live.time && pts.length) {
+      var lp = pts[pts.length - 1];
+      var daily = CHART_RANGES[rk].interval === '1d' || CHART_RANGES[rk].interval === '1wk';
+      var sameDay = h.market === 'TW' ? tpeParts_(lp[0]).iso === tpeParts_(live.time).iso : nyParts_(lp[0]).iso === nyParts_(live.time).iso;
+      if (daily && (sameDay || CHART_RANGES[rk].interval === '1wk' && live.time - lp[0] < 7 * 864e5)) lp[1] = live.price;
+      else if (live.time > lp[0] + 60e3) pts.push([live.time, live.price]);
+    }
+    res.ref = (bars && bars.chartPrevClose) || (pts.length ? pts[0][1] : null);
+    res.refLabel = '區間起點';
+  }
+  res.points = downsample_(pts, 600);
+  return res;
+}
+
+function holdingFor_(raw) {
+  var nc = normalizeCode_(raw);
+  if (!nc) throw userError_('代號格式不正確');
+  var h = readHoldings_().filter(function (x) { return x.code === nc.code; })[0];
+  return h || { code: nc.code, market: nc.market, name: '', shares: 0, cost: null, keyword: '' };
+}
+
+function chart_(raw, rk) {
+  if (!CHART_RANGES[rk]) throw userError_('不支援的區間：' + rk);
+  var h = holdingFor_(raw);
+  var q = getQuotes_([h])[h.code];
+  var sym = yahooSymFor_(h, q);
+  var got = yahooBarsMany_([{ sym: sym, rk: rk, market: h.market }]);
+  var bars = got[sym + '|' + rk];
+  if (bars === null && h.market === 'TW') {   // 上市／上櫃判斷錯：換另一個後綴
+    var alt = h.code + (sym.slice(-4) === '.TWO' ? '.TW' : '.TWO');
+    bars = yahooBarsMany_([{ sym: alt, rk: rk, market: h.market }])[alt + '|' + rk];
+  }
+  var res = buildChart_(h, rk, bars, q);
+  if (!res.points.length && (!q || q.error)) throw userError_('查不到 ' + h.code + ' 的走勢資料', 'not_found');
+  return res;
+}
+
+/** 明細頁每 5 秒呼叫：只抓這一檔、最多 4 秒的快取 */
+function live_(raw) {
+  var h = holdingFor_(raw);
+  var q = getQuotes_([h], 4)[h.code];
+  var lv = budgetLevel_();
+  return { quote: q, open: marketOpen_(h.market), next: lv === 2 ? 60000 : lv === 1 ? 15000 : 5000, usage: usageInfo_(), notice: QUOTA_NOTICE };
+}
+
+/** 持股列的迷你走勢：所有持股的當日走勢，每檔最多 60 點 */
+function spark_() {
+  var holdings = readHoldings_();
+  var key = 'spark:' + holdings.map(function (h) { return h.code; }).sort().join(',');
+  var cached = cacheGet_(key);
+  if (cached) return cached;
+  if (budgetLevel_() === 2) throw userError_('省額度模式：迷你走勢暫停更新', 'budget');
+  var quotes = getQuotes_(holdings);
+  var items = holdings.map(function (h) { return { sym: yahooSymFor_(h, quotes[h.code]), rk: '1d', market: h.market }; });
+  var bars = yahooBarsMany_(items);
+  var out = {};
+  holdings.forEach(function (h, i) {
+    var c = buildChart_(h, '1d', bars[items[i].sym + '|1d'], quotes[h.code]);
+    out[h.code] = { points: downsample_(c.points, 60), ref: c.ref, start: c.start, end: c.end, gap: c.gap };
+  });
+  var res = { spark: out };
+  var anyOpen = marketOpen_('TW') || marketOpen_('US');
+  cachePut_(key, res, anyOpen ? 240 : 1800);   // 盤中 4 分鐘、收盤後 30 分鐘，所有裝置共用
+  return res;
+}
+
+function recorderStatus_() {
+  var exists = false;
+  try { exists = ScriptApp.getProjectTriggers().some(function (t) { return t.getHandlerFunction() === 'recordTick'; }); }
+  catch (e) { return { name: '盤中紀錄排程', ok: false, detail: '無法讀取排程：請在 Apps Script 重新執行 setup 並授權', ms: 0 }; }
+  if (!exists) return { name: '盤中紀錄排程', ok: false, detail: '尚未建立：請在 Apps Script 執行 setup', ms: 0 };
+  var last = cacheGet_('rec:last');
+  return { name: '盤中紀錄排程', ok: true, detail: '每分鐘' + (last ? '，最近一次 ' + new Date(Number(last) + 8 * 3600e3).toISOString().slice(5, 16).replace('T', ' ') : '（台股盤中才會執行）'), ms: 0 };
 }

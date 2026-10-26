@@ -105,7 +105,39 @@ main{max-width:1180px;margin:0 auto;padding:12px 12px calc(var(--sab) + 90px)}
 }
 
 /* 持股列 */
-.hrow{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 12px;width:100%;text-align:left;background:transparent;border:0;border-bottom:1px solid var(--line);padding:12px 14px}
+.hrow{display:grid;grid-template-columns:minmax(0,1fr) 76px auto;gap:2px 10px;width:100%;text-align:left;background:transparent;border:0;border-bottom:1px solid var(--line);padding:12px 14px}
+.hrow>.hname{grid-column:1;grid-row:1} .hrow>.hsub{grid-column:1;grid-row:2}
+.hrow>.hspark{grid-column:2;grid-row:1/span 2;align-self:center;width:76px;height:34px}
+.hrow>.hprice{grid-column:3;grid-row:1} .hrow>.hchg{grid-column:3;grid-row:2} .hrow>.hstats{grid-row:3}
+@media (max-width:369px){.hrow{grid-template-columns:minmax(0,1fr) 0 auto;column-gap:6px}.hrow>.hspark{display:none}}
+.hspark svg{display:block;width:76px;height:34px;overflow:visible}
+.sp-line{fill:none;stroke-width:1.5;stroke-linejoin:round;stroke-linecap:round}
+.sp-ref{stroke:var(--muted);stroke-width:1;stroke-dasharray:2 3;opacity:.6}
+.up-s{stroke:var(--up)} .down-s{stroke:var(--down)} .flat-s{stroke:var(--flat)}
+/* 明細走勢圖 */
+.chart{margin:-4px 0 14px}
+.ch-head{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 10px;min-height:52px}
+.ch-price{font-family:var(--num);font-size:30px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1.1}
+.ch-chg{font-family:var(--num);font-size:16px;font-weight:600;font-variant-numeric:tabular-nums}
+.ch-when{flex-basis:100%;font-size:12.5px;color:var(--muted);display:flex;align-items:center;gap:6px;min-height:18px}
+.live-dot{width:8px;height:8px;border-radius:50%;background:var(--accent);flex:none;position:relative}
+.live-dot::after{content:"";position:absolute;inset:-4px;border-radius:50%;border:2px solid var(--accent);opacity:0;animation:ping 2s ease-out infinite}
+.live-dot.off{background:var(--flat)} .live-dot.off::after{display:none}
+@keyframes ping{0%{transform:scale(.6);opacity:.7}100%{transform:scale(1.6);opacity:0}}
+@media (prefers-reduced-motion:reduce){.live-dot::after{animation:none}}
+.ch-box{position:relative;height:210px;margin-top:4px;touch-action:pan-y;-webkit-user-select:none;user-select:none}
+.ch-box svg{display:block;width:100%;height:100%;overflow:visible}
+.ch-msg{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;color:var(--muted);font-size:14px;text-align:center;padding:0 12px}
+.ch-line{fill:none;stroke-width:1.8;stroke-linejoin:round;stroke-linecap:round}
+.ch-ref{stroke:var(--muted);stroke-width:1;stroke-dasharray:3 4}
+.ch-grid{stroke:var(--line);stroke-width:1}
+.ch-axis{fill:var(--muted);font-size:11px;font-family:var(--num)}
+.ch-cross{stroke:var(--muted);stroke-width:1}
+.ch-dot{stroke:var(--surface);stroke-width:2}
+.seg{display:flex;background:var(--field);border-radius:9px;padding:3px;margin-top:6px}
+.seg button{flex:1;border:0;background:transparent;padding:6px 0;border-radius:7px;font-size:13.5px;font-weight:600;color:var(--muted)}
+.seg button[aria-pressed="true"]{background:var(--surface);color:var(--text);box-shadow:0 1px 2px rgba(15,25,45,.12)}
+.ch-note{font-size:12.5px;color:var(--warn);background:var(--warn-bg);border-radius:8px;padding:8px 10px;margin-top:8px}
 .hrow:last-child{border-bottom:0}
 .hrow:hover{background:var(--field)}
 .hname{display:flex;align-items:baseline;min-width:0;font-weight:600;font-size:16px}
@@ -319,6 +351,17 @@ dialog::backdrop{background:rgba(10,16,30,.45)}
   <div class="dlg">
     <div class="dlg-head"><h2 id="detTitle"></h2><button type="button" class="icon-btn" data-close aria-label="關閉"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
     <div class="dlg-body">
+      <section class="chart" aria-label="走勢圖">
+        <div class="ch-head">
+          <span class="ch-price" id="chPrice">—</span><span class="ch-chg" id="chChg"></span>
+          <span class="ch-when" id="chWhen"></span>
+        </div>
+        <div class="ch-box" id="chBox"></div>
+        <div class="seg" id="chRanges" role="group" aria-label="走勢區間">
+          <button type="button" data-r="1d" aria-pressed="true">1日</button><button type="button" data-r="5d" aria-pressed="false">5日</button><button type="button" data-r="1mo" aria-pressed="false">1月</button><button type="button" data-r="6mo" aria-pressed="false">6月</button><button type="button" data-r="1y" aria-pressed="false">1年</button><button type="button" data-r="5y" aria-pressed="false">5年</button>
+        </div>
+        <div class="ch-note hidden" id="chNote"></div>
+      </section>
       <div class="stats" id="detStats"></div>
       <div class="hsub" id="detQuote"></div>
       <div id="detEventsWrap" class="hidden"><div class="sect">近期時程</div><div id="detEvents"></div></div>
@@ -403,6 +446,8 @@ let data = LS.get('data', null);      // {holdings, quotes, fx, fetchedAt}
 let news = LS.get('news', null);      // {news, days, fetchedAt}
 let lastFx = LS.get('fx', null);      // 最近一次成功的匯率
 let events = LS.get('events', null);  // {events, sources, today, fetchedAt}
+let spark = LS.get('spark', null);    // {spark: {code: {points, ref, start, end}}, fetchedAt}
+let loadingSpark = false, lastSparkAt = 0, sparkKey = '';
 let evFilter = 'all';
 let loadingEvents = false, eventsError = null, lastEventsAt = 0;
 let newsFilter = 'all';
@@ -612,6 +657,7 @@ function renderHoldings(c) {
     const ne = nearEvent(h.code);
     const neLabel = ne ? relDay(isoDays(tpeTodayIso(), ne.date)).replace(' ', '') + (ne.type === 'exdiv' ? evTypeOf(ne) : EV_TYPES[ne.type].short) : '';
     const top = el('div', { class: 'hname' }, el('span', { class: 'nm' }, r.name), el('span', { class: 'hcode' }, h.code), isUS ? el('span', { class: 'tag' }, '美股') : null,
+      r.q && r.q.delayed ? el('span', { class: 'tag', title: '證交所暫時連不上，改用 Yahoo（延遲約 20 分鐘）' }, '延遲') : null,
       ne ? el('span', { class: 'tag ev-badge t-' + ne.type, title: '近期時程' }, neLabel) : null);
     let price, chg, sub, pnlLine;
     if (r.q) {
@@ -619,19 +665,22 @@ function renderHoldings(c) {
       chg = el('div', { class: 'hchg' }, el('span', { class: 'pill ' + cls(r.dayChg) }, (r.dayChg != null ? signed(r.dayChg, NF2) + ' ' : '') + pct(r.dayPct)));
       sub = el('div', { class: 'hsub' },
         el('span', null, fmtShares(h.shares) + ' 股　成本 ' + (h.cost != null ? cur + fmtPrice(h.cost) : '未填')),
-        el('span', null, '市值 ' + (isUS ? 'US$' + NF2.format(r.mv) : NF0.format(Math.round(r.mv)))));
-      const pnlText = r.pnl == null ? '—' : (isUS ? 'US$' + signed(r.pnl, NF2) : signed(Math.round(r.pnl), NF0));
+        el('span', null, '市值 ' + (r.mvT != null ? NF0.format(Math.round(r.mvT)) : 'US$' + NF2.format(r.mv)) + (isUS && r.mvT == null ? '（匯率缺）' : '')));
+      // 美股的未實現損益、市值都換成台幣（匯率取不到時才顯示美元）
+      const pnlText = r.pnl == null ? '—' : (r.pnlT != null ? signed(Math.round(r.pnlT), NF0) : 'US$' + signed(r.pnl, NF2));
       const dayText = r.dayTR != null ? signed(r.dayTR, NF0) : (r.day != null ? '匯率缺' : '—');
       pnlLine = el('div', { class: 'hstats' },
         el('div', null, '今日損益（台幣）', el('b', { class: cls(r.dayTR) }, dayText)),
-        el('div', null, '未實現損益', r.pnlPct != null ? el('span', { class: 'pc ' + cls(r.pnlPct) }, pct(r.pnlPct)) : null, el('b', { class: cls(r.pnl) }, pnlText)));
+        el('div', null, '未實現損益（台幣）', r.pnlPct != null ? el('span', { class: 'pc ' + cls(r.pnlPct) }, pct(r.pnlPct)) : null, el('b', { class: cls(r.pnl) }, pnlText)));
     } else {
       price = el('div', { class: 'hprice num flat' }, '—');
       chg = el('div', { class: 'hchg flat' }, '無報價');
       sub = el('div', { class: 'hsub' }, fmtShares(h.shares) + ' 股');
       pnlLine = el('div', { class: 'hpnl' }, el('span', { style: 'color:var(--err)' }, r.qErr || '報價讀取中'));
     }
-    list.append(el('button', { class: 'hrow', type: 'button', onclick: () => openDetail(h.code), 'aria-label': r.name + ' ' + h.code + ' 詳細資料' }, top, price, sub, chg, pnlLine));
+    const sp = el('div', { class: 'hspark', 'aria-hidden': 'true' });
+    sparkSvg(sp, h.code, r.q, r.dayChg != null ? cls(r.dayChg) : null);
+    list.append(el('button', { class: 'hrow', type: 'button', onclick: () => openDetail(h.code), 'aria-label': r.name + ' ' + h.code + ' 詳細資料' }, top, sp, price, sub, chg, pnlLine));
   });
 }
 function welcome() {
@@ -847,6 +896,9 @@ function renderNotices(c) {
   if (c && c.sum.noFx) box.append(el('div', { class: 'notice warn' }, '美元匯率暫時取不到，美股尚未計入台幣合計。'));
   else if (c && c.fxStale) box.append(el('div', { class: 'notice warn' }, '美元匯率暫時取不到，先用上次的匯率 ' + c.fx.rate.toFixed(3) + ' 換算。'));
   if (c && c.sum.missing) box.append(el('div', { class: 'notice warn' }, c.sum.missing + ' 檔股票沒有報價，未計入合計。'));
+  if (data && data.notice) box.append(el('div', { class: 'notice warn' }, data.notice + '（目前顯示最後一次取得的報價）'));
+  else if (data && data.usage && data.usage.level) box.append(el('div', { class: 'notice warn' }, '最近 24 小時已連線 ' + NF0.format(data.usage.count) + ' 次，已自動放慢更新頻率，以免超過 Google 每日額度（20,000 次）。'));
+  if (c && c.rows.some(r => r.q && r.q.delayed)) box.append(el('div', { class: 'notice warn' }, '證交所暫時連不上，標示「延遲」的台股改用 Yahoo 報價（延遲約 20 分鐘）。'));
 }
 
 function renderAll() {
@@ -893,10 +945,24 @@ async function refreshEvents() {
   } catch (e) { eventsError = /未知的動作/.test(e.message) ? '後端還是舊版：請把新的 Code.gs 貼到 Apps Script，並在「管理部署作業」部署新版本' : '時程讀取失敗：' + e.message; }
   finally { loadingEvents = false; renderAll(); }
 }
+async function refreshSpark(force) {
+  if (!cfg.url || loadingSpark || !data || !data.holdings.length) return;
+  const key = data.holdings.map(h => h.code).sort().join(',');
+  // 盤中每 5 分鐘、收盤後每 30 分鐘更新一次；持股有變動就立刻更新
+  const maxAge = marketOpen() ? 5 * 60e3 : 30 * 60e3;
+  if (!force && key === sparkKey && Date.now() - lastSparkAt < maxAge) return;
+  loadingSpark = true;
+  try {
+    const r = await call('GET', { action: 'spark' });
+    spark = Object.assign(r, { fetchedAt: Date.now() }); LS.set('spark', spark);
+    lastSparkAt = Date.now(); sparkKey = key;
+  } catch (e) { /* 迷你走勢不是必要資訊，失敗就維持上次的 */ lastSparkAt = Date.now(); }
+  finally { loadingSpark = false; renderAll(); }
+}
 async function refreshAll(force) {
   await refreshData();
-  const jobs = [];
-  if (force || Date.now() - lastNewsAt > 10 * 60e3) jobs.push(refreshNews());
+  const jobs = [refreshSpark(force)];
+  if (force || Date.now() - lastNewsAt > (marketOpen() ? 10 : 30) * 60e3) jobs.push(refreshNews());
   if (force || Date.now() - lastEventsAt > 3 * 3600e3) jobs.push(refreshEvents());
   await Promise.all(jobs);
 }
@@ -911,7 +977,9 @@ function marketOpen() {
   return twOpen || usOpen;
 }
 setInterval(() => {
-  if (document.visibilityState === 'visible' && cfg.url && marketOpen() && Date.now() - lastDataAt > 55e3) refreshData();
+  const lv = data && data.usage ? data.usage.level : 0;
+  const gap = lv === 2 ? 118e3 : lv === 1 ? 58e3 : 28e3;   // 盤中 30 秒；用量高時放慢
+  if (document.visibilityState === 'visible' && cfg.url && marketOpen() && Date.now() - lastDataAt > gap) refreshData().then(() => refreshSpark(false));
 }, 15e3);
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState !== 'visible' || !cfg.url) return;
@@ -1000,40 +1068,315 @@ $('#formEdit').addEventListener('submit', async (ev) => {
     closeDlg($('#dlgEdit'));
     toast(editing ? '已儲存變更' : '已新增 ' + ($('#fName').value.trim() || code));
     await refreshData();
-    refreshNews(); refreshEvents();
+    refreshNews(); refreshEvents(); refreshSpark(true);
   } catch (e) { showErr('#eForm', e.message); }
   finally { btn.disabled = false; btn.textContent = '儲存'; }
 });
 
+/* ================= 走勢圖 ================= */
+const SVGNS = 'http://www.w3.org/2000/svg';
+const sv = (tag, attrs) => { const e = document.createElementNS(SVGNS, tag); for (const k in attrs) if (attrs[k] != null) e.setAttribute(k, attrs[k]); return e; };
+const TPE_HM = new Intl.DateTimeFormat('zh-TW', { timeZone: 'Asia/Taipei', hour: '2-digit', minute: '2-digit', hour12: false });
+const TPE_HMS = new Intl.DateTimeFormat('zh-TW', { timeZone: 'Asia/Taipei', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+const TPE_MD = new Intl.DateTimeFormat('zh-TW', { timeZone: 'Asia/Taipei', month: 'numeric', day: 'numeric' });
+const TPE_YM = new Intl.DateTimeFormat('zh-TW', { timeZone: 'Asia/Taipei', year: 'numeric', month: 'numeric' });
+const hm = (ms) => TPE_HM.format(new Date(ms)).replace(/^24:/, '00:');
+const hms = (ms) => TPE_HMS.format(new Date(ms)).replace(/^24:/, '00:');
+const mdT = (ms) => TPE_MD.format(new Date(ms)).replace(/[月日]/g, m => m === '月' ? '/' : '');
+function marketOpenFor(market) {
+  const tz = market === 'US' ? 'America/New_York' : 'Asia/Taipei';
+  const f = new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(new Date());
+  const o = {}; f.forEach(p => o[p.type] = p.value);
+  const m = (+o.hour % 24) * 60 + (+o.minute);
+  if (['Sat', 'Sun'].includes(o.weekday)) return false;
+  return market === 'US' ? m >= 570 && m <= 965 : m >= 540 && m <= 815;
+}
+/** 迷你走勢：當日（或最近一個交易日）的線，最後一點接上最新報價 */
+function sparkSvg(host, code, q, dirOverride) {
+  const d = spark && spark.spark && spark.spark[code];
+  if (!d || !d.points || d.points.length < 2) return;
+  const pts = d.points.slice();
+  if (q && q.time && q.price && d.start && q.time > pts[pts.length - 1][0] && q.time <= d.end + 300e3) pts.push([Math.min(q.time, d.end), q.price]);
+  const W = 76, H = 34, pad = 2;
+  const ys = pts.map(p => p[1]).concat(d.ref ? [d.ref] : []);
+  let lo = Math.min(...ys), hi = Math.max(...ys);
+  if (hi - lo < 1e-9) { lo -= 1; hi += 1; }
+  const x = (t) => d.start && d.end > d.start ? pad + (W - 2 * pad) * Math.min(1, Math.max(0, (t - d.start) / (d.end - d.start))) : pad;
+  const xi = (i) => pad + (W - 2 * pad) * i / (pts.length - 1);
+  const useTime = d.start && d.end > d.start;
+  const y = (v) => pad + (H - 2 * pad) * (1 - (v - lo) / (hi - lo));
+  const last = pts[pts.length - 1][1];
+  const dir = dirOverride || (d.ref ? cls(last - d.ref) : 'flat');   // 顏色跟列表的漲跌一致
+  const svg = sv('svg', { viewBox: `0 0 ${W} ${H}` });
+  if (d.ref) svg.append(sv('line', { class: 'sp-ref', x1: 0, x2: W, y1: y(d.ref).toFixed(1), y2: y(d.ref).toFixed(1) }));
+  svg.append(sv('path', { class: 'sp-line ' + dir + '-s', d: pts.map((p, i) => (i ? 'L' : 'M') + (useTime ? x(p[0]) : xi(i)).toFixed(1) + ' ' + y(p[1]).toFixed(1)).join('') }));
+  host.append(svg);
+}
+
+const RANGE_LABEL = { '1d': '今日', '5d': '近 5 日', '1mo': '近 1 月', '6mo': '近 6 月', '1y': '近 1 年', '5y': '近 5 年' };
+const chartCache = {};       // code|range → {data, at}
+let chartRange = '1d', chartData = null, chartReq = 0, chartErr = null, chartLoading = false;
+let liveTimer = null, liveOn = false, liveFails = 0, liveLastAt = 0, liveStopped = '', liveNext = 5000;
+let hoverIdx = null;
+
+function chartCur(market) { return market === 'US' ? 'US$' : ''; }
+function renderChartHead() {
+  const c = chartData;
+  const pEl = $('#chPrice'), cEl = $('#chChg'), wEl = $('#chWhen');
+  const h = data && data.holdings.find(x => x.code === detailCode);
+  const q = data && data.quotes[detailCode];
+  if (!c || !c.points.length) {
+    pEl.textContent = q && !q.error ? chartCur(h && h.market) + fmtPrice(q.price) : '—';
+    cEl.textContent = ''; cEl.className = 'ch-chg';
+    wEl.replaceChildren(chartLoading ? '載入走勢…' : '');
+    return;
+  }
+  const pts = c.points;
+  const hov = hoverIdx != null && pts[hoverIdx];
+  const p = hov ? hov[1] : pts[pts.length - 1][1];
+  const ref = c.ref;
+  pEl.textContent = chartCur(c.market) + fmtPrice(p);
+  if (ref) {
+    const ch = p - ref;
+    cEl.textContent = signed(ch, NF2) + '（' + pct(ch / ref) + '）';
+    cEl.className = 'ch-chg ' + cls(ch);
+  } else { cEl.textContent = ''; cEl.className = 'ch-chg'; }
+  if (hov) {
+    wEl.replaceChildren((c.range === '1d' || c.range === '5d' ? mdT(hov[0]) + ' ' + hm(hov[0]) : mdT(hov[0])) + '　相對' + (c.range === '1d' ? '昨收' : '區間起點'));
+    return;
+  }
+  const live = c.range === '1d' && liveOn;
+  const lastT = (c.last && c.last.time) || pts[pts.length - 1][0];
+  const dot = el('span', { class: 'live-dot' + (live ? '' : ' off') });
+  let txt;
+  if (live) txt = '即時・每 ' + Math.round(liveNext / 1000) + ' 秒更新・' + hms(liveLastAt || lastT) + (c.market === 'US' ? '（台灣時間）' : '');
+  else if (c.range === '1d') txt = (liveStopped || (marketOpenFor(c.market) ? '' : '已收盤・')) + '最後成交 ' + mdT(lastT) + ' ' + hm(lastT) + '・相對昨收';
+  else txt = RANGE_LABEL[c.range] + '漲跌（相對區間起點）';
+  wEl.replaceChildren(dot, txt);
+}
+
+function drawChart() {
+  const box = $('#chBox');
+  box.replaceChildren();
+  const c = chartData;
+  if (!c || !c.points.length) {
+    const msg = el('div', { class: 'ch-msg' });
+    if (chartLoading) msg.append('載入走勢…');
+    else if (chartErr) msg.append(chartErr, el('button', { class: 'btn', type: 'button', onclick: () => loadChart(detailCode, chartRange, true) }, '重試'));
+    else msg.append('沒有走勢資料');
+    box.append(msg);
+    return;
+  }
+  const W = Math.max(240, Math.round(box.clientWidth || 320)), H = Math.round(box.clientHeight || 210);
+  const padT = 10, padB = 22, padL = 2, padR = 54;
+  const pw = W - padL - padR, ph = H - padT - padB;
+  const pts = c.points, n = pts.length;
+  const useTime = c.range === '1d' && c.start && c.end > c.start;
+  const ys = pts.map(p => p[1]);
+  if (c.range === '1d' && c.ref) ys.push(c.ref);
+  let lo = Math.min(...ys), hi = Math.max(...ys);
+  const span = hi - lo || Math.max(hi * 0.01, 0.01);
+  lo -= span * 0.08; hi += span * 0.08;
+  const X = (i) => useTime ? padL + pw * Math.min(1, Math.max(0, (pts[i][0] - c.start) / (c.end - c.start))) : padL + (n > 1 ? pw * i / (n - 1) : pw / 2);
+  const Y = (v) => padT + ph * (1 - (v - lo) / (hi - lo));
+  const last = pts[n - 1][1];
+  const dir = c.ref ? cls(last - c.ref) : 'flat';
+  const col = dir === 'flat' ? 'var(--flat)' : `var(--${dir})`;
+  const gid = 'g' + Math.random().toString(36).slice(2, 8);
+  const svg = sv('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img' });
+  const defs = sv('defs', {});
+  const lg = sv('linearGradient', { id: gid, x1: 0, x2: 0, y1: 0, y2: 1 });
+  const s1 = sv('stop', { offset: '0%' }); s1.style.cssText = `stop-color:${col};stop-opacity:.22`;
+  const s2 = sv('stop', { offset: '100%' }); s2.style.cssText = `stop-color:${col};stop-opacity:0`;
+  lg.append(s1, s2); defs.append(lg); svg.append(defs);
+  // 格線與右側刻度：最高、最低、參考價
+  [hi - span * 0.08, lo + span * 0.08].forEach(v => {
+    svg.append(sv('line', { class: 'ch-grid', x1: padL, x2: padL + pw, y1: Y(v).toFixed(1), y2: Y(v).toFixed(1) }));
+    const t = sv('text', { class: 'ch-axis', x: W - 2, y: (Y(v) + 4).toFixed(1), 'text-anchor': 'end' }); t.textContent = fmtPrice(v); svg.append(t);
+  });
+  if (c.ref && c.ref > lo && c.ref < hi) {
+    svg.append(sv('line', { class: 'ch-ref', x1: padL, x2: padL + pw, y1: Y(c.ref).toFixed(1), y2: Y(c.ref).toFixed(1) }));
+    const t = sv('text', { class: 'ch-axis', x: W - 2, y: (Y(c.ref) + 4).toFixed(1), 'text-anchor': 'end' }); t.textContent = fmtPrice(c.ref); svg.append(t);
+  }
+  const line = pts.map((p, i) => (i ? 'L' : 'M') + X(i).toFixed(1) + ' ' + Y(p[1]).toFixed(1)).join('');
+  svg.append(sv('path', { d: line + `L${X(n - 1).toFixed(1)} ${padT + ph}L${X(0).toFixed(1)} ${padT + ph}Z`, fill: `url(#${gid})` }));
+  const path = sv('path', { class: 'ch-line', d: line }); path.style.stroke = col; svg.append(path);
+  // X 軸
+  const xl = [];
+  if (useTime) {
+    const mid = c.start + (c.end - c.start) / 2;
+    xl.push([padL, hm(c.start), 'start'], [padL + pw / 2, hm(Math.round(mid / 60e3) * 60e3), 'middle'], [padL + pw, hm(c.end), 'end']);
+  } else {
+    const fmt = (ms) => c.range === '5y' ? TPE_YM.format(new Date(ms)).replace(/年/, '/').replace(/月/, '') : mdT(ms);
+    xl.push([padL, fmt(pts[0][0]), 'start'], [padL + pw / 2, fmt(pts[Math.floor((n - 1) / 2)][0]), 'middle'], [padL + pw, fmt(pts[n - 1][0]), 'end']);
+  }
+  xl.forEach(([x, txt, anchor]) => { const t = sv('text', { class: 'ch-axis', x: x.toFixed(1), y: H - 5, 'text-anchor': anchor }); t.textContent = txt; svg.append(t); });
+  // 最後一點
+  const dotEl = sv('circle', { class: 'ch-dot', cx: X(n - 1).toFixed(1), cy: Y(last).toFixed(1), r: 4 }); dotEl.style.fill = col; svg.append(dotEl);
+  // 十字線
+  const cross = sv('g', { visibility: 'hidden' });
+  const cl = sv('line', { class: 'ch-cross', y1: padT, y2: padT + ph });
+  const cd = sv('circle', { class: 'ch-dot', r: 4 }); cd.style.fill = col;
+  cross.append(cl, cd); svg.append(cross);
+  const pick = (ev) => {
+    const r = svg.getBoundingClientRect();
+    const px = (ev.clientX - r.left) * (W / r.width);
+    let best = 0, bd = Infinity;
+    for (let i = 0; i < n; i++) { const d = Math.abs(X(i) - px); if (d < bd) { bd = d; best = i; } }
+    hoverIdx = best;
+    cl.setAttribute('x1', X(best).toFixed(1)); cl.setAttribute('x2', X(best).toFixed(1));
+    cd.setAttribute('cx', X(best).toFixed(1)); cd.setAttribute('cy', Y(pts[best][1]).toFixed(1));
+    cross.setAttribute('visibility', 'visible');
+    renderChartHead();
+  };
+  const leave = () => { hoverIdx = null; cross.setAttribute('visibility', 'hidden'); renderChartHead(); };
+  svg.addEventListener('pointerdown', pick);
+  svg.addEventListener('pointermove', pick);
+  svg.addEventListener('pointerleave', leave);
+  svg.addEventListener('pointercancel', leave);
+  svg.addEventListener('pointerup', (ev) => { if (ev.pointerType !== 'mouse') leave(); });
+  const name = $('#detTitle').textContent;
+  svg.setAttribute('aria-label', name + ' ' + RANGE_LABEL[c.range] + '走勢：' + fmtPrice(pts[0][1]) + ' 到 ' + fmtPrice(last) + (c.ref ? '，' + pct((last - c.ref) / c.ref) : ''));
+  box.append(svg);
+}
+
+function renderChartNote() {
+  const note = $('#chNote');
+  let msg = '';
+  if (chartData && chartData.range === '1d' && chartData.gap) msg = '盤中紀錄排程沒有在執行，最近約 20 分鐘的走勢會缺資料（Yahoo 台股資料延遲 20 分鐘）。請在 Apps Script 重新執行 setup，並到設定按「測試連線」確認「盤中紀錄排程」。';
+  else if (liveStopped && /額度|上限/.test(liveStopped)) msg = liveStopped;
+  else if (liveNext > 5000 && liveOn) msg = '今天的連線用量較高，已自動放慢為每 ' + Math.round(liveNext / 1000) + ' 秒更新，以免超過 Google 每日額度。';
+  note.textContent = msg;
+  note.classList.toggle('hidden', !msg);
+}
+function renderChart() { renderChartHead(); drawChart(); renderChartNote(); }
+
+async function loadChart(code, range, force) {
+  chartRange = range;
+  document.querySelectorAll('#chRanges button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.r === range)));
+  const key = code + '|' + range;
+  const hit = chartCache[key];
+  const ttl = range === '1d' ? 60e3 : 10 * 60e3;
+  hoverIdx = null; chartErr = null;
+  if (hit && !force && Date.now() - hit.at < ttl) { chartData = hit.data; chartLoading = false; renderChart(); startLive(); return; }
+  chartData = hit ? hit.data : null; chartLoading = true; renderChart();
+  const my = ++chartReq;
+  try {
+    const d = await call('GET', { action: 'chart', code, range });
+    if (my !== chartReq || detailCode !== code) return;   // 已經切到別檔或別的區間
+    chartData = d; chartCache[key] = { data: d, at: Date.now() };
+  } catch (e) {
+    if (my !== chartReq) return;
+    chartErr = /未知的動作/.test(e.message) ? '後端還是舊版：請把新的 Code.gs 貼到 Apps Script 並部署新版本' : '走勢讀取失敗：' + e.message;
+  } finally {
+    if (my === chartReq) { chartLoading = false; renderChart(); startLive(); }
+  }
+}
+document.querySelectorAll('#chRanges button').forEach(b => b.addEventListener('click', () => { stopLive(); loadChart(detailCode, b.dataset.r); }));
+
+/* ---- 即時更新：明細開著、看「1日」、該市場開盤中、畫面在前景 → 每 5 秒 ---- */
+function stopLive() { liveOn = false; if (liveTimer) clearTimeout(liveTimer); liveTimer = null; }
+function startLive() {
+  stopLive();
+  const dlg = $('#dlgDetail');
+  if (!dlg.open || chartRange !== '1d' || !chartData || document.visibilityState !== 'visible') { renderChartHead(); return; }
+  if (!marketOpenFor(chartData.market)) { renderChartHead(); return; }
+  // 交易時段內但最新成交已超過 30 分鐘（休市日、暫停交易）：不假裝在即時更新
+  const lt = chartData.last && chartData.last.time;
+  if (lt && Date.now() - lt > 30 * 60e3) { liveStopped = '目前沒有成交更新（可能是休市日）・'; renderChart(); return; }
+  if (/額度|上限/.test(liveStopped)) { renderChartHead(); return; }
+  liveStopped = ''; liveOn = true;
+  liveTimer = setTimeout(liveTick, 5000);
+  renderChartHead();
+}
+async function liveTick() {
+  const code = detailCode;
+  if (!$('#dlgDetail').open || document.visibilityState !== 'visible' || chartRange !== '1d') { stopLive(); return; }
+  try {
+    const r = await call('GET', { action: 'live', code });
+    if (code !== detailCode || chartRange !== '1d') return;
+    liveFails = 0; liveLastAt = Date.now();
+    liveNext = r.next || 5000;
+    if (data && r.usage) data.usage = r.usage;
+    applyLive(code, r.quote);
+    if (r.notice) { liveStopped = r.notice; stopLive(); renderChart(); return; }
+    // 交易時段內但報價 30 分鐘沒動（休市日、暫停交易）：停止每 5 秒更新
+    if (r.quote && r.quote.time && Date.now() - r.quote.time > 30 * 60e3) {
+      liveStopped = '目前沒有成交更新（可能是休市日）・'; stopLive(); renderChart(); return;
+    }
+    if (!r.open) { liveStopped = '已收盤・'; stopLive(); renderChart(); return; }
+  } catch (e) {
+    if (e.code === 'quota') { liveStopped = e.message; stopLive(); renderChart(); return; }
+    liveFails++;
+  }
+  if (liveOn) {
+    // 連續失敗就放慢，避免網路不穩時一直打
+    liveTimer = setTimeout(liveTick, liveFails >= 3 ? 20000 : liveNext);
+    renderChartHead();
+  }
+}
+function applyLive(code, q) {
+  if (!q || q.error || !data) return;
+  data.quotes[code] = q;
+  const c = chartData;
+  if (c && c.range === '1d' && q.time && q.price) {
+    c.last = { price: q.price, time: q.time, priceType: q.priceType };
+    const lastP = c.points[c.points.length - 1];
+    const inSession = !c.start || (q.time >= c.start && q.time <= c.end + 300e3);
+    const tradeOk = c.market !== 'TW' || q.priceType === 'trade';
+    if (inSession && tradeOk && (!lastP || q.time > lastP[0])) c.points.push([Math.min(q.time, c.end || q.time), q.price]);
+    else if (inSession && tradeOk && lastP && q.time === lastP[0]) lastP[1] = q.price;
+  }
+  if (hoverIdx == null) { renderChart(); }
+  renderDetailStats(code);
+  renderAll();
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && $('#dlgDetail').open && chartRange === '1d') loadChart(detailCode, '1d', true);
+  else stopLive();
+});
+$('#dlgDetail').addEventListener('close', () => { stopLive(); chartReq++; hoverIdx = null; });
+let resizeT = null;
+window.addEventListener('resize', () => { clearTimeout(resizeT); resizeT = setTimeout(() => { if ($('#dlgDetail').open) drawChart(); }, 120); });
+
 /* ================= 單一持股 ================= */
 let detailCode = null;
-function openDetail(code) {
-  detailCode = code;
-  const c = compute(); if (!c) return;
-  const r = c.rows.find(x => x.h.code === code); if (!r) return;
+function renderDetailStats(code) {
+  const c = compute(); if (!c) return null;
+  const r = c.rows.find(x => x.h.code === code); if (!r) return null;
   const isUS = r.h.market === 'US', cur = isUS ? 'US$' : 'NT$';
-  $('#detTitle').textContent = r.name + '　' + r.h.code;
   const st = $('#detStats'); st.replaceChildren();
   const stat = (label, val, c2) => st.append(el('div', null, label, el('b', { class: c2 || '' }, val)));
   if (r.q) {
-    stat('現價', cur + fmtPrice(r.q.price), cls(r.dayChg));
     stat('今日漲跌', (r.dayChg != null ? signed(r.dayChg, NF2) + ' ' : '') + pct(r.dayPct), cls(r.dayChg));
     stat('持有股數', fmtShares(r.h.shares) + ' 股');
     stat('平均成本', r.h.cost != null ? cur + fmtPrice(r.h.cost) : '未填');
-    stat('市值', isUS ? 'US$' + NF2.format(r.mv) : 'NT$' + NF0.format(Math.round(r.mv)));
+    stat('市值（台幣）', r.mvT != null ? 'NT$' + NF0.format(Math.round(r.mvT)) : '匯率缺');
     stat('今日損益（台幣）', r.dayTR != null ? 'NT$' + signed(r.dayTR, NF0) : '—', cls(r.dayTR));
-    if (isUS) stat('今日損益（美元）', r.day != null ? 'US$' + signed(r.day, NF2) : '—', cls(r.day));
-    stat('未實現損益', r.pnl != null ? (isUS ? 'US$' + signed(r.pnl, NF2) : signed(Math.round(r.pnl), NF0)) : '—', cls(r.pnl));
+    stat('未實現損益（台幣）', r.pnlT != null ? 'NT$' + signed(Math.round(r.pnlT), NF0) : '—', cls(r.pnl));
     stat('報酬率', pct(r.pnlPct), cls(r.pnlPct));
-    if (isUS && r.rate) stat('折合台幣', 'NT$' + NF0.format(Math.round(r.mvT)) + (r.pnlT != null ? '／損益 ' + signed(Math.round(r.pnlT), NF0) : ''));
+    if (isUS) {
+      stat('市值（美元）', 'US$' + NF2.format(r.mv));
+      stat('今日損益（美元）', r.day != null ? 'US$' + signed(r.day, NF2) : '—', cls(r.day));
+      stat('未實現損益（美元）', r.pnl != null ? 'US$' + signed(r.pnl, NF2) : '—', cls(r.pnl));
+      if (r.rate) stat('換算匯率', r.rate.toFixed(3) + (c.fxStale ? '（上次）' : ''));
+    }
     if (r.fee) stat('已扣預估賣出費用', 'NT$' + NF0.format(r.fee));
     const tp = { trade: '成交價', mid: '暫無成交，用買賣中價', bid: '暫無成交，用委買價', ask: '暫無成交，用委賣價', prevClose: '今日尚無成交，用昨收' }[r.q.priceType] || '';
-    $('#detQuote').textContent = '報價時間 ' + fmtTime(r.q.time, true) + '　來源 ' + (r.q.source === 'TWSE' ? '證交所' : 'Yahoo') + (tp && r.q.priceType !== 'trade' ? '　' + tp : '') + (r.h.note ? '　備註：' + r.h.note : '');
+    $('#detQuote').textContent = '報價時間 ' + fmtTime(r.q.time, true) + '　來源 ' + (r.q.source === 'TWSE' ? '證交所' : 'Yahoo') + (r.q.delayed ? '（證交所暫時連不上，延遲約 20 分鐘）' : '') + (tp && r.q.priceType !== 'trade' ? '　' + tp : '') + (r.h.note ? '　備註：' + r.h.note : '');
   } else {
     stat('報價', r.qErr || '無報價');
     stat('持有股數', fmtShares(r.h.shares) + ' 股');
     $('#detQuote').textContent = '';
   }
+  return r;
+}
+function openDetail(code) {
+  detailCode = code;
+  const r = renderDetailStats(code); if (!r) return;
+  $('#detTitle').textContent = r.name + '　' + r.h.code;
+  liveStopped = /額度|上限/.test(liveStopped) ? liveStopped : '';
+  chartData = null; chartErr = null;
   const de = $('#detEvents'); de.replaceChildren();
   if (events) {
     const today = tpeTodayIso(), names = stockNames();
@@ -1057,6 +1400,8 @@ function openDetail(code) {
     n.items.forEach(it => dn.append(newsItem(it, false)));
   }
   openDlg($('#dlgDetail'));
+  $('#dlgDetail .dlg-body').scrollTop = 0;
+  loadChart(code, '1d');
 }
 $('#btnEdit').addEventListener('click', () => openEdit(detailCode));
 $('#btnDelete').addEventListener('click', async () => {

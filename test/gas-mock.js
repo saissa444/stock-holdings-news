@@ -5,7 +5,19 @@ const vm = require('vm');
 const crypto = require('crypto');
 const convert = require('/opt/npm-tools/node_modules/xml-js');
 
-function makeEnv(fetchHandler) {
+function makeEnv(fetchHandler, opts) {
+  opts = opts || {};
+  const triggers = [];
+  const sleeps = [];
+  const cacheExp = {};
+  const fetchTimes = [];
+  let fetchCount = 0;
+  const quotaCheck = (n) => {
+    if (opts.quotaLeft != null) {
+      if (fetchCount + n > opts.quotaLeft()) throw new Error('Exception: Service invoked too many times for one day: urlfetch.');
+    }
+    fetchCount += n;
+  };
   // ---------- 試算表（模擬「數字格式」：非文字格式欄位會把數字字串轉成數字） ----------
   class Range {
     constructor(sh, r, c, nr, nc) { Object.assign(this, { sh, r, c, nr, nc }); }
@@ -63,6 +75,7 @@ function makeEnv(fetchHandler) {
   const doFetch = (req) => {
     const r = typeof req === 'string' ? { url: req } : req;
     fetchLog.push(r.url + (r.payload && r.payload.co_id ? '#co_id=' + r.payload.co_id + '&TYPEK=' + r.payload.TYPEK : ''));
+    fetchTimes.push([ctx.__now(), r.url]);
     const out = fetchHandler(r.url, r);
     if (out instanceof Error) throw out;
     return resp(out.code, out.body, out.headers);
@@ -85,9 +98,19 @@ function makeEnv(fetchHandler) {
     SpreadsheetApp: { getActiveSpreadsheet: () => ss },
     PropertiesService: { getScriptProperties: () => ({
       getProperty: k => (k in props ? props[k] : null), setProperty: (k, v) => { props[k] = v; }, deleteProperty: k => { delete props[k]; } }) },
+    // 和真的 CacheService 一樣：有到期時間（最長 6 小時）、單筆上限 100KB
     CacheService: { getScriptCache: () => ({
-      get: k => { if (k.length > 250) throw new Error('key too long'); return cacheStore[k] || null; },
-      put: (k, v) => { if (k.length > 250) throw new Error('key too long'); cacheStore[k] = v; } }) },
+      get: k => {
+        if (k.length > 250) throw new Error('key too long');
+        const e = cacheExp[k];
+        if (e != null && ctx.__now() >= e) { delete cacheStore[k]; delete cacheExp[k]; return null; }
+        return cacheStore[k] || null;
+      },
+      put: (k, v, ttl) => {
+        if (k.length > 250) throw new Error('key too long');
+        if (String(v).length > 100 * 1024) throw new Error('Argument too large: value');
+        cacheStore[k] = v; cacheExp[k] = ctx.__now() + Math.min(ttl || 600, 21600) * 1000;
+      } }) },
     LockService: { getScriptLock: () => ({ tryLock: () => true, releaseLock: () => {} }) },
     Logger: { log: () => {} },
     Utilities: {
@@ -95,19 +118,31 @@ function makeEnv(fetchHandler) {
       base64EncodeWebSafe: b => Buffer.from(b).toString('base64url'),
       computeDigest: (alg, s) => Array.from(crypto.createHash('md5').update(s, 'utf8').digest()),
       DigestAlgorithm: { MD5: 'MD5' }, Charset: { UTF_8: 'UTF-8' },
+      sleep: (ms) => { sleeps.push(ms); if (opts.onSleep) opts.onSleep(ms); else { const end = Date.now() + ms; while (Date.now() < end) { /* 真的等 */ } } },
     },
     ContentService: {
       MimeType: { JSON: 'json' },
       createTextOutput: s => ({ setMimeType() { return this; }, getContent: () => s }),
     },
     XmlService: { parse: xml => { const j = convert.xml2js(xml, { compact: false }); const root = j.elements.find(e => e.type === 'element'); return { getRootElement: () => wrap(root) }; } },
-    UrlFetchApp: { fetch: (u, o) => doFetch(Object.assign({ url: u }, o || {})), fetchAll: reqs => reqs.map(doFetch) },
+    UrlFetchApp: {
+      fetch: (u, o) => { quotaCheck(1); return doFetch(Object.assign({ url: u }, o || {})); },
+      fetchAll: reqs => { quotaCheck(reqs.length); return reqs.map(doFetch); }
+    },
+    ScriptApp: {
+      getProjectTriggers: () => { if (opts.triggerError) throw new Error('需要授權'); return triggers.slice(); },
+      newTrigger: (fn) => ({ timeBased: () => ({ everyMinutes: (n) => ({ create: () => { const t = { getHandlerFunction: () => fn, minutes: n }; triggers.push(t); return t; } }) }) }),
+      deleteTrigger: (t) => { const i = triggers.indexOf(t); if (i >= 0) triggers.splice(i, 1); },
+    },
+    __now: () => Date.now(),
   };
   vm.createContext(ctx);
+  // Code.gs 用 Date.now() 判斷開收盤；測試可以覆寫 Node 的 Date.now 來控制時間
+  vm.runInContext('Date.now = function () { return __now(); };', ctx);
   const code = fs.readFileSync(path.join(__dirname, '../backend/Code.gs'), 'utf8');
   vm.runInContext(code, ctx, { filename: 'Code.gs' });
   return {
-    ctx, sheets, props, cacheStore,
+    ctx, sheets, props, cacheStore, triggers, sleeps, fetchTimes, fetchCount: () => fetchCount,
     fetchLog: () => fetchLog, resetFetchLog: () => { fetchLog = []; },
     clearCache: () => { for (const k in cacheStore) delete cacheStore[k]; },
     get: (params) => JSON.parse(ctx.doGet({ parameter: params }).getContent()),

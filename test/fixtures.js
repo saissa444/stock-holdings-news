@@ -2,6 +2,7 @@
 // 數值是測試用，不是真實行情。
 const now = Date.now();
 
+let clock = () => Date.now();   // 測試可用 setClock 換成固定時間
 const MIS = {
   '2330': { ex: 'tse', n: '台積電', z: '1085.0000', y: '1070.0000', o: '1075.0000', h: '1090.0000', l: '1072.0000', b: '1080.0000_1075.0000_', a: '1090.0000_1095.0000_' },
   '0050': { ex: 'tse', n: '元大台灣50', z: '-', y: '195.2000', o: '196.0000', h: '197.0000', l: '195.0000', b: '196.4000_196.3000_', a: '196.5500_196.6000_' },
@@ -14,6 +15,7 @@ const YAHOO = {
   'AAPL': { regularMarketPrice: 268.81, previousClose: 262.24, currency: 'USD', shortName: 'Apple Inc.', exchangeName: 'NMS' },
   'NVDA': { regularMarketPrice: 186.26, chartPreviousClose: 180.28, currency: 'USD', longName: 'NVIDIA Corporation', exchangeName: 'NMS' },
   'BRK-B': { regularMarketPrice: 489.1, previousClose: 491.0, currency: 'USD', shortName: 'Berkshire Hathaway Inc. New', exchangeName: 'NYQ' },
+  'MSFT': { regularMarketPrice: 512.4, previousClose: 509.8, currency: 'USD', shortName: 'Microsoft Corporation', exchangeName: 'NMS' },
   'MU': { regularMarketPrice: 105.2, previousClose: 101.0, currency: 'USD', shortName: 'Micron Technology, Inc.', exchangeName: 'NMS' },
   'TWD=X': { regularMarketPrice: 30.62, previousClose: 30.55, currency: 'TWD', shortName: 'USD/TWD' },
   '2330.TW': { regularMarketPrice: 1084, previousClose: 1070, currency: 'TWD', longName: 'Taiwan Semiconductor Manufacturing Company Limited' },
@@ -87,7 +89,7 @@ function newsFor(q, lang, days) {
 
 // ---------- 時程用的測試資料（日期都相對於「台北今天」，測試哪天跑都一樣） ----------
 const DAY = 86400e3;
-function tpeMidnightUTC(offset) { const d = new Date(Date.now() + 8 * 3600e3); return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) + offset * DAY; }
+function tpeMidnightUTC(offset) { const d = new Date(clock() + 8 * 3600e3); return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) + offset * DAY; }
 function isoOf(offset) { return new Date(tpeMidnightUTC(offset)).toISOString().slice(0, 10); }
 function roc7(offset) { const d = new Date(tpeMidnightUTC(offset)); return String(d.getUTCFullYear() - 1911) + String(d.getUTCMonth() + 1).padStart(2, '0') + String(d.getUTCDate()).padStart(2, '0'); }
 function rocSlash(offset) { const r = roc7(offset); return r.slice(0, 3) + '/' + r.slice(3, 5) + '/' + r.slice(5); }
@@ -104,6 +106,59 @@ const MOPS_CONF = {
 };
 let crumbVersion = 1;
 
+// ---------- 走勢圖：可重現的模擬價格（依時間平滑變動） ----------
+const TW_BASE = { '2330': 1070, '0050': 195.2, '6488': 415, '00878': 22.1, '2412': 128.5 };
+function twPrice(code, ms) { const b = TW_BASE[code] || 100; return Math.round(b * (1 + 0.012 * Math.sin(ms / 3.6e6) + 0.004 * Math.sin(ms / 4.1e5)) * 100) / 100; }
+function usPrice(sym, ms, prev) { return Math.round(prev * (1 + 0.015 * Math.sin(ms / 5.4e6) + 0.005 * Math.sin(ms / 6.3e5)) * 100) / 100; }
+// 台北某日 09:00–13:30、美東某日 09:30–16:00（UTC 毫秒）
+function twSes(ms) { const d = new Date(ms + 8 * 3600e3); const base = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) - 8 * 3600e3; return [base + 9 * 3600e3, base + 13.5 * 3600e3]; }
+function usOffset(ms) {
+  const y = new Date(ms).getUTCFullYear();
+  const nth = (m, n) => { const f = new Date(Date.UTC(y, m, 1)); return Date.UTC(y, m, 1 + (7 - f.getUTCDay()) % 7 + (n - 1) * 7); };
+  return ms >= nth(2, 2) + 7 * 3600e3 && ms < nth(10, 1) + 6 * 3600e3 ? -4 : -5;
+}
+function usSes(ms) { const off = usOffset(ms); const d = new Date(ms + off * 3600e3); const base = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) - off * 3600e3; return [base + 9.5 * 3600e3, base + 16 * 3600e3]; }
+function lastTradingSession(sesFn, nowMs, delayMs) {
+  // 從今天往回找：有開盤（週一到五）且已開始的那天
+  for (let k = 0; k < 7; k++) {
+    const probe = nowMs - k * 864e5;
+    const [a, b] = sesFn(probe);
+    const wd = new Date((a + b) / 2 + (sesFn === twSes ? 8 : usOffset(probe)) * 3600e3).getUTCDay();
+    if (wd === 0 || wd === 6) continue;
+    if (a + delayMs > nowMs) continue;   // 今天還沒開盤（或延遲資料還沒出來）
+    return [a, b];
+  }
+  return sesFn(nowMs);
+}
+function yahooBars(sym, f, range, interval) {
+  const nowMs = clock();
+  const isTW = /\.TWO?$/.test(sym);
+  const delay = isTW ? 20 * 60e3 : 0;
+  const code = sym.replace(/\.TWO?$/, '');
+  const prev = f.previousClose || f.chartPreviousClose;
+  const priceAt = (ms) => isTW ? twPrice(code, ms) : usPrice(sym, ms, prev);
+  const ts = [], close = [];
+  let periods;
+  if (interval === '1m') {
+    const [a, b] = lastTradingSession(isTW ? twSes : usSes, nowMs, delay);
+    for (let t = a; t <= Math.min(b, nowMs - delay); t += 60e3) { ts.push(Math.floor(t / 1000)); close.push(priceAt(t)); }
+    periods = [[{ timezone: isTW ? 'CST' : 'EDT', start: a / 1000, end: b / 1000, gmtoffset: isTW ? 28800 : -14400 }]];
+  } else {
+    const days = { '5d': 5, '1mo': 22, '6mo': 126, '1y': 252, '5y': 1260 }[range] || 5;
+    const stepMs = interval === '1wk' ? 7 * 864e5 : interval === '1d' ? 864e5 : interval === '60m' ? 3600e3 : 300e3;
+    const startMs = nowMs - days * 864e5 * 7 / 5;
+    for (let t = startMs; t <= nowMs - delay; t += stepMs) {
+      const wd = new Date(t).getUTCDay(); if (wd === 0 || wd === 6) continue;
+      ts.push(Math.floor(t / 1000)); close.push(Math.round(priceAt(t) * (1 + (t - nowMs) / (days * 864e5) * 0.3) * 100) / 100);
+    }
+  }
+  if (close.length > 3) close[2] = null;   // Yahoo 偶爾會有 null
+  return { chart: { result: [{
+    meta: Object.assign({ symbol: sym, regularMarketTime: Math.floor((nowMs - delay) / 1000), chartPreviousClose: interval === '1m' ? prev : Math.round(prev * 0.8 * 100) / 100, tradingPeriods: periods,
+      exchangeName: isTW ? (sym.endsWith('.TWO') ? 'TWO' : 'TAI') : 'NMS' }, f, interval === '1m' ? {} : { previousClose: undefined }),
+    timestamp: ts, indicators: { quote: [{ close }] } }], error: null } };
+}
+
 /** state: { misDown, yahooDown, yahoo429, newsDown, fxYahooDown, erDown } */
 function makeHandler(state = {}) {
   return function (url, req) {
@@ -115,7 +170,15 @@ function makeHandler(state = {}) {
       ch.split('|').forEach(part => {
         const m = part.match(/^(tse|otc)_(.+)\.tw$/); if (!m) return;
         const f = MIS[m[2]]; if (!f || f.ex !== m[1]) return;
-        arr.push(Object.assign({ c: m[2], ch: m[2] + '.tw', tlong: String(now - 60000), d: '20261023', t: '13:30:00' }, f));
+        // misDyn：價格隨時間變動；未開盤時回傳上一個交易日收盤那筆（和真實 MIS 一樣）
+        let live = {}, tl = now - 60000;
+        if (state.misDyn) {
+          const [, b] = lastTradingSession(twSes, clock(), 0);
+          tl = Math.floor(Math.min(clock(), b) / 5000) * 5000;
+          if (state.misStale) tl = Math.floor((clock() - 2 * 3600e3) / 5000) * 5000;   // 休市日：時間停在很久以前
+          live = { z: twPrice(m[2], tl).toFixed(4) };
+        }
+        arr.push(Object.assign({ c: m[2], ch: m[2] + '.tw', tlong: String(tl), d: '20261023', t: '13:30:00' }, f, live));
       });
       return { code: 200, body: JSON.stringify({ msgArray: arr, rtcode: '0000', rtmessage: 'OK' }) };
     }
@@ -126,6 +189,8 @@ function makeHandler(state = {}) {
       const sym = decodeURIComponent(u.pathname.split('/').pop());
       const f = YAHOO[sym];
       if (!f) return { code: 404, body: JSON.stringify({ chart: { result: null, error: { code: 'Not Found', description: 'No data found, symbol may be delisted' } } }) };
+      const interval = u.searchParams.get('interval') || '1d', range = u.searchParams.get('range') || '1d';
+      if (interval !== '1d' || range !== '1d') return { code: 200, body: JSON.stringify(yahooBars(sym, f, range, interval)) };
       return { code: 200, body: JSON.stringify({ chart: { result: [{ meta: Object.assign({ symbol: sym, regularMarketTime: Math.floor(now / 1000) - 120 }, f), timestamp: [], indicators: {} }], error: null } }) };
     }
     if (u.hostname === 'news.google.com') {
@@ -163,6 +228,26 @@ function makeHandler(state = {}) {
       if (state.yahooAuthDown) return { code: 404, body: '' };
       return { code: 404, body: 'Not Found', headers: { 'Set-Cookie': ['A3=d=AQABBTEST' + crumbVersion + '; Expires=Mon, 25 Oct 2027 10:00:00 GMT; Max-Age=31557600; Domain=.yahoo.com; Path=/; SameSite=None; Secure; HttpOnly'] } };
     }
+    if (u.hostname.endsWith('finance.yahoo.com') && u.pathname.includes('/v7/finance/quote')) {
+      if (state.yahooDown) return { code: 500, body: 'err' };
+      if (state.yahoo429 && u.hostname.startsWith('query1')) return { code: 429, body: 'Too Many Requests' };
+      if (state.v7Down) return { code: 404, body: '' };
+      const ok = u.searchParams.get('crumb') === 'Crumb' + crumbVersion + '.zX' && /A3=d=AQABBTEST/.test((req && req.headers && req.headers.Cookie) || '');
+      if (!ok) return { code: 401, body: JSON.stringify({ finance: { result: null, error: { code: 'Unauthorized', description: 'Invalid Crumb' } } }) };
+      const syms = (u.searchParams.get('symbols') || '').split(',').filter(Boolean);
+      const result = [];
+      syms.forEach(sym => {
+        const f = YAHOO[sym];
+        if (!f || (state.fxYahooDown && sym === 'TWD=X')) return;
+        const isTW = /\.TWO?$/.test(sym);
+        let price = f.regularMarketPrice;
+        if (state.usDyn && !isTW && sym !== 'TWD=X') { const [, e] = lastTradingSession(usSes, clock(), 0); price = usPrice(sym, Math.min(clock(), e), f.previousClose || f.chartPreviousClose); }
+        result.push({ symbol: sym, regularMarketPrice: price, regularMarketPreviousClose: f.previousClose || f.chartPreviousClose,
+          regularMarketTime: Math.floor((clock() - (isTW ? 20 * 60e3 : 0)) / 1000), currency: f.currency, shortName: f.shortName, longName: f.longName,
+          exchange: isTW ? (sym.endsWith('.TWO') ? 'TWO' : 'TAI') : 'NMS', fullExchangeName: isTW ? 'Taiwan' : 'NasdaqGS' });
+      });
+      return { code: 200, body: JSON.stringify({ quoteResponse: { result, error: null } }) };
+    }
     if (u.hostname.endsWith('finance.yahoo.com') && u.pathname.includes('/v1/test/getcrumb')) {
       const ck = (req && req.headers && req.headers.Cookie) || '';
       if (!/A3=d=AQABBTEST/.test(ck)) return { code: 401, body: '' };
@@ -190,4 +275,4 @@ function makeHandler(state = {}) {
   };
 }
 
-module.exports = { makeHandler, isoOf, expireCrumb: () => { crumbVersion++; } };
+module.exports = { makeHandler, isoOf, expireCrumb: () => { crumbVersion++; }, twPrice, twSes, usSes, setClock: (fn) => { clock = fn; } };
