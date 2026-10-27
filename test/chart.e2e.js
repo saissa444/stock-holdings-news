@@ -284,6 +284,40 @@ const pointCount = (page) => page.$eval('#chBox .ch-line', p => (p.getAttribute(
   });
   await ctx.close();
 
+  // ───────── 新聞篩選列：持股很多時，電腦版每個股票都要點得到 ─────────
+  b = backend({ at: TPE(10, 27, 20, 0) });
+  [['2317', '鴻海'], ['2454', '聯發科'], ['2308', '台達電'], ['2382', '廣達'], ['3231', '緯創'], ['2376', '技嘉'],
+   ['3017', '奇鋐'], ['2059', '川湖'], ['3008', '大立光'], ['2327', '國巨'], ['3653', '健策'], ['8299', '群聯'], ['2472', '立隆電']]
+    .forEach(([code, name]) => b.env.post({ action: 'upsert', token: b.token, holding: { code, shares: 1000, cost: 100, name } }));
+  for (const [label, vp] of [['1280', { width: 1280, height: 860 }], ['1000', { width: 1000, height: 760 }]]) {
+    ({ ctx, page, errors } = await openApp(browser, b.code, Object.assign({}, desktop, { viewport: vp })));
+    await t(`電腦版（寬 ${label}）：新聞篩選列每個股票都看得到、點得到（含最後的立隆電）`, async () => {
+      await page.waitForSelector('#chips .chip:has-text("立隆電")');
+      const bad = await page.$$eval('#chips .chip', chips => chips.filter(c => {
+        const r = c.getBoundingClientRect(), box = c.parentElement.getBoundingClientRect();
+        const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+        return r.right > box.right + 0.5 || r.left < box.left - 0.5 || !(hit === c || c.contains(hit));
+      }).map(c => c.textContent));
+      assert.deepStrictEqual(bad, [], '點不到：' + bad.join('、'));
+      await page.click('#chips .chip:has-text("立隆電")');
+      assert.strictEqual(await page.getAttribute('#chips .chip:has-text("立隆電")', 'aria-pressed'), 'true');
+      await page.screenshot({ path: OUT + `/19-chips-desktop-${label}.png` });
+    });
+    await ctx.close();
+  }
+  ({ ctx, page, errors } = await openApp(browser, b.code, iphone));
+  await t('手機（觸控）：篩選列維持一行、可用手指橫向滑動到最後一個', async () => {
+    await page.click('#tabNews');
+    await page.waitForSelector('#chips .chip:has-text("立隆電")');
+    const info = await page.$eval('#chips', el => ({ h: el.getBoundingClientRect().height, sw: el.scrollWidth, cw: el.clientWidth }));
+    assert.ok(info.h < 60, '一行 ' + info.h);
+    assert.ok(info.sw > info.cw, '可以橫向捲動');
+    await page.$eval('#chips', el => { el.scrollLeft = el.scrollWidth; });
+    await page.tap('#chips .chip:has-text("立隆電")');
+    assert.strictEqual(await page.getAttribute('#chips .chip:has-text("立隆電")', 'aria-pressed'), 'true');
+  });
+  await ctx.close();
+
   console.log(`\n${passed} passed, ${failed} failed`);
   await browser.close(); server.close(); execServer.close(); echoServer.close();
   process.exit(failed ? 1 : 0);

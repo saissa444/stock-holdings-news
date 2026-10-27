@@ -164,6 +164,8 @@ main{max-width:1180px;margin:0 auto;padding:12px 12px calc(var(--sab) + 90px)}
 /* 新聞 */
 .chips{flex:none;display:flex;gap:6px;overflow-x:auto;padding:10px 14px;border-bottom:1px solid var(--line);scrollbar-width:none}
 .chips::-webkit-scrollbar{display:none}
+/* 用滑鼠的裝置（電腦）沒辦法用手指橫向滑：改成自動換行，每個都看得到、點得到 */
+@media (hover:hover) and (pointer:fine){.chips{flex-wrap:wrap;overflow-x:visible}}
 .chip{flex:none;border:1px solid var(--line);background:var(--surface);border-radius:16px;padding:4px 12px;font-size:14px;white-space:nowrap}
 .chip[aria-pressed="true"]{background:var(--text);color:var(--surface);border-color:var(--text)}
 .day{font-size:13px;font-weight:600;color:var(--muted);padding:12px 14px 4px;background:var(--surface);position:sticky;top:0}
