@@ -170,12 +170,15 @@ function makeHandler(state = {}) {
       ch.split('|').forEach(part => {
         const m = part.match(/^(tse|otc)_(.+)\.tw$/); if (!m) return;
         const f = MIS[m[2]]; if (!f || f.ex !== m[1]) return;
+        if (state.misMissing && state.misMissing.includes(m[2])) return;
         // misDyn：價格隨時間變動；未開盤時回傳上一個交易日收盤那筆（和真實 MIS 一樣）
         let live = {}, tl = now - 60000;
         if (state.misDyn) {
           const [, b] = lastTradingSession(twSes, clock(), 0);
           tl = Math.floor(Math.min(clock(), b) / 5000) * 5000;
           if (state.misStale) tl = Math.floor((clock() - 2 * 3600e3) / 5000) * 5000;   // 休市日：時間停在很久以前
+          if (state.misPreClose && tl >= b) tl = b - 5000;                                  // 收盤價還沒公布
+          if (state.misPrice && state.misPrice[m[2]] != null) live = { z: Number(state.misPrice[m[2]]).toFixed(4) };
           live = { z: twPrice(m[2], tl).toFixed(4) };
         }
         arr.push(Object.assign({ c: m[2], ch: m[2] + '.tw', tlong: String(tl), d: '20261023', t: '13:30:00' }, f, live));
@@ -259,7 +262,7 @@ function makeHandler(state = {}) {
       const sym = decodeURIComponent(u.pathname.split('/').pop());
       const t = (off, h, m) => Math.floor((tpeMidnightUTC(off) + ((h || 0) * 60 + (m || 0)) * 60e3) / 1000);
       const R = {
-        AAPL: { calendarEvents: { earnings: { earningsDate: [{ raw: t(4, 20, 30), fmt: isoOf(4) }], isEarningsDateEstimate: false }, exDividendDate: { raw: t(-3) }, dividendDate: { raw: t(10) } }, defaultKeyStatistics: { lastDividendValue: { raw: 0.26 } } },
+        AAPL: { calendarEvents: { earnings: { earningsDate: [{ raw: t(4, 21, 30), fmt: isoOf(4) }], isEarningsDateEstimate: false }, exDividendDate: { raw: t(-3) }, dividendDate: { raw: t(10) } }, defaultKeyStatistics: { lastDividendValue: { raw: 0.26 } } },
         NVDA: { calendarEvents: { earnings: { earningsDate: [{ raw: t(30) }, { raw: t(35) }], isEarningsDateEstimate: true } }, defaultKeyStatistics: {} },
         MSFT: { calendarEvents: { earnings: { earningsDate: [{ raw: t(6, 11, 0) }], isEarningsDateEstimate: false } }, defaultKeyStatistics: {} },
         'BRK-B': { calendarEvents: {}, defaultKeyStatistics: {} },

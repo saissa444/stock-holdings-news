@@ -68,9 +68,12 @@ t('recordTick：盤中每分鐘記一筆、同一筆快照不重複、收盤後�
   assert.strictEqual(rec[1][1], twPrice('2330', Math.floor(NOW / 5000) * 5000));
   assert.ok(env.cacheStore['rec:2026-10-27:6488'] && env.cacheStore['rec:2026-10-27:0050']);
   assert.ok(!env.fetchLog().some(u => /yahoo/.test(u)), '紀錄只打證交所');
-  NOW = TPE(10, 27, 14, 0); env.resetFetchLog();
+  NOW = TPE(10, 27, 14, 0);
+  env.ctx.recordTick();                          // 13:31 以後第一次：記錄每日市值（每天一次）
+  assert.strictEqual(env.sheets['每日市值'].rows.length, 2);
+  NOW = TPE(10, 27, 14, 1); env.resetFetchLog();
   env.ctx.recordTick();
-  assert.strictEqual(env.fetchLog().length, 0, '收盤後不抓');
+  assert.strictEqual(env.fetchLog().length, 0, '記過之後收盤後不抓');
   NOW = TPE(10, 31, 10, 0); env.ctx.recordTick();
   assert.strictEqual(env.fetchLog().length, 0, '週末不抓');
 });

@@ -318,6 +318,57 @@ const pointCount = (page) => page.$eval('#chBox .ch-line', p => (p.getAttribute(
   });
   await ctx.close();
 
+  // ───────── 每日市值：模擬 10/19–10/30 每天 13:31 的紀錄 ─────────
+  b = backend({ at: TPE(10, 19, 8, 0) });
+  for (let d = 19; d <= 30; d++) { if (d === 25) continue; NOW = TPE(10, d, 13, 31); b.env.ctx.recordTick(); }   // 10/25 故意漏記
+  NOW = TPE(10, 30, 15, 0);
+  const sheetRows = b.env.sheets['每日市值'].rows.slice(1);
+  ({ ctx, page, errors } = await openApp(browser, b.code, iphone));
+  await t('市值分頁：列表＝試算表紀錄；增加紅色▲、減少綠色▼，顯示確切金額', async () => {
+    await page.click('#tabHist');
+    await page.waitForSelector('#histList .hrec');
+    const shown = await page.$$eval('#histList .hrec', rs => rs.map(r => ({ d: r.querySelector('.d').textContent, v: r.querySelector('.v').textContent, c: r.querySelector('.chg').textContent, cls: r.querySelector('.chg').className, color: getComputedStyle(r.querySelector('.chg')).color })));
+    assert.strictEqual(shown.length, 10);
+    const latest = sheetRows[sheetRows.length - 1];
+    assert.strictEqual(shown[0].v, latest[2].toLocaleString('en-US'));
+    sheetRows.slice().reverse().slice(0, 10).forEach((r, i) => {
+      const dmv = r[10];
+      if (dmv === '' ) return;
+      const exp = (dmv > 0 ? '▲ ' : dmv < 0 ? '▼ ' : '— ') + Math.abs(dmv).toLocaleString('en-US');
+      assert.ok(shown[i].c.startsWith(exp), shown[i].c + ' vs ' + exp);
+      if (dmv > 0) { assert.match(shown[i].cls, /up/); assert.strictEqual(shown[i].color, 'rgb(210, 59, 51)'); }
+      if (dmv < 0) { assert.match(shown[i].cls, /down/); assert.strictEqual(shown[i].color, 'rgb(23, 138, 76)'); }
+    });
+    assert.ok(shown.some(x => /up/.test(x.cls)) && shown.some(x => /down/.test(x.cls)), '模擬資料要同時有漲有跌：' + shown.map(x => x.c).join(' | '));
+    assert.match(await page.textContent('#histList'), /與 2026-10-24 比較/);
+    assert.match(await page.textContent('#histTotal'), new RegExp(latest[2].toLocaleString('en-US')));
+    await page.screenshot({ path: OUT + '/20-hist-iphone.png', fullPage: true });
+  });
+  await t('市值趨勢圖：滑過顯示當天市值與前日變化；切換區間', async () => {
+    const svg = await page.$('#histBox svg'); const bb = await svg.boundingBox();
+    await page.mouse.move(bb.x + 2, bb.y + bb.height / 2);
+    assert.match(await page.textContent('#histSub'), /10\/19（一）13:31 紀錄/);
+    assert.match(await page.textContent('#histSub'), /第一筆/);
+    await page.mouse.move(bb.x - 20, bb.y - 20);
+    await page.click('#histRanges button[data-r="1m"]');
+    assert.strictEqual(await page.getAttribute('#histRanges button[data-r="1m"]', 'aria-pressed'), 'true');
+    assert.match(await page.textContent('#histSub'), /近 1 月/);
+  });
+  await t('沒有 JS 錯誤（市值分頁）', async () => { assert.deepStrictEqual(errors, []); });
+  await ctx.close();
+
+  ({ ctx, page, errors } = await openApp(browser, b.code, desktop));
+  await t('電腦版：市值面板在持倉下方；匯出 .xlsx 下載成功', async () => {
+    await page.waitForSelector('#histList .hrec');
+    await page.screenshot({ path: OUT + '/21-hist-desktop.png', fullPage: true });
+    const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#btnExport')]);
+    assert.strictEqual(dl.suggestedFilename(), '持股市值紀錄_2026-10-30.xlsx');
+    await dl.saveAs(OUT + '/hist-export.xlsx');
+    assert.ok(fs.statSync(OUT + '/hist-export.xlsx').size > 3000);
+    fs.writeFileSync(OUT + '/hist-expected.json', JSON.stringify({ daily: sheetRows, det: b.env.sheets['市值明細'].rows.slice(1) }));
+  });
+  await ctx.close();
+
   console.log(`\n${passed} passed, ${failed} failed`);
   await browser.close(); server.close(); execServer.close(); echoServer.close();
   process.exit(failed ? 1 : 0);

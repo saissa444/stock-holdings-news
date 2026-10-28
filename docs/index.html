@@ -98,7 +98,7 @@ main{max-width:1180px;margin:0 auto;padding:12px 12px calc(var(--sab) + 90px)}
 @media (min-width:960px){
   .tabs{display:none}
   .cols{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:16px;align-items:start}
-  #panel-hold,#panel-news,#panel-events{display:block !important}
+  #panel-hold,#panel-news,#panel-events,#panel-hist{display:block !important}
   .col-left{display:flex;flex-direction:column;gap:16px;min-width:0}
   #panel-news{position:sticky;top:12px;max-height:calc(100vh - 24px);display:flex !important;flex-direction:column}
   #panel-news .news-scroll{overflow:auto}
@@ -137,6 +137,23 @@ main{max-width:1180px;margin:0 auto;padding:12px 12px calc(var(--sab) + 90px)}
 .seg{display:flex;background:var(--field);border-radius:9px;padding:3px;margin-top:6px}
 .seg button{flex:1;border:0;background:transparent;padding:6px 0;border-radius:7px;font-size:13.5px;font-weight:600;color:var(--muted)}
 .seg button[aria-pressed="true"]{background:var(--surface);color:var(--text);box-shadow:0 1px 2px rgba(15,25,45,.12)}
+.hist-body{padding:12px 14px 4px}
+.hist-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 12px;min-height:48px}
+.hist-total{font-family:var(--num);font-size:28px;font-weight:700;font-variant-numeric:tabular-nums}
+.hist-total small{font-size:15px;color:var(--muted);margin-right:3px;font-weight:600}
+.hist-sub{flex-basis:100%;font-size:13px;color:var(--muted);display:flex;flex-wrap:wrap;gap:2px 12px}
+.chg{font-family:var(--num);font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
+.legend{display:flex;gap:14px;font-size:12px;color:var(--muted);margin-top:4px}
+.legend i{display:inline-block;width:16px;height:0;border-top:2px solid var(--accent);vertical-align:middle;margin-right:5px}
+.legend i.cost{border-top:2px dashed var(--muted)}
+.hrec{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:0 12px;align-items:baseline;padding:9px 14px;border-top:1px solid var(--line)}
+.hrec .d{font-size:13.5px;white-space:nowrap}
+.hrec .d small{color:var(--muted);margin-left:4px}
+.hrec .v{text-align:right;font-family:var(--num);font-size:16px;font-weight:600;font-variant-numeric:tabular-nums}
+.hrec .c{text-align:right;min-width:9.5em}
+.hrec .n{grid-column:1/-1;font-size:12px;color:var(--muted)}
+.hist-more{display:block;width:100%;border:0;border-top:1px solid var(--line);background:transparent;padding:11px;color:var(--accent);font-weight:600}
+.btn.small{padding:6px 10px;font-size:13.5px}
 .ch-note{font-size:12.5px;color:var(--warn);background:var(--warn-bg);border-radius:8px;padding:8px 10px;margin-top:8px}
 .hrow:last-child{border-bottom:0}
 .hrow:hover{background:var(--field)}
@@ -272,6 +289,7 @@ dialog::backdrop{background:rgba(10,16,30,.45)}
   <div class="tabs" role="tablist">
     <button role="tab" id="tabHold" aria-selected="true" aria-controls="panel-hold">持倉</button>
     <button role="tab" id="tabNews" aria-selected="false" aria-controls="panel-news">新聞<span id="newsCount"></span></button>
+    <button role="tab" id="tabHist" aria-selected="false" aria-controls="panel-hist">市值</button>
     <button role="tab" id="tabEvents" aria-selected="false" aria-controls="panel-events">時程</button>
   </div>
   <div class="cols">
@@ -289,6 +307,19 @@ dialog::backdrop{background:rgba(10,16,30,.45)}
         </select>
       </div>
       <div id="holdList"></div>
+    </section>
+    <section class="panel hidden" id="panel-hist" role="tabpanel" aria-labelledby="tabHist">
+      <div class="panel-head"><h2>每日市值</h2><button type="button" class="btn small" id="btnExport">匯出 Excel／Numbers</button></div>
+      <div class="hist-body">
+        <div class="hist-head"><span class="hist-total" id="histTotal">—</span><span class="hist-sub" id="histSub"></span></div>
+        <div class="ch-box" id="histBox" style="height:200px"></div>
+        <div class="legend" id="histLegend"></div>
+        <div class="seg" id="histRanges" role="group" aria-label="市值區間">
+          <button type="button" data-r="1m" aria-pressed="false">1月</button><button type="button" data-r="3m" aria-pressed="true">3月</button><button type="button" data-r="6m" aria-pressed="false">6月</button><button type="button" data-r="1y" aria-pressed="false">1年</button><button type="button" data-r="all" aria-pressed="false">全部</button>
+        </div>
+      </div>
+      <div id="histList"></div>
+      <div class="evnote">每天台北時間 13:30 自動記錄（等台股收盤價公布後寫入）。美股用前一晚收盤價，匯率用記錄當下的美元匯率。週末與休市日照常記錄。</div>
     </section>
     <section class="panel hidden" id="panel-events" role="tabpanel" aria-labelledby="tabEvents">
       <div class="panel-head"><h2>重要時程</h2><span class="hsub" id="eventsUpdated"></span></div>
@@ -448,6 +479,8 @@ let data = LS.get('data', null);      // {holdings, quotes, fx, fetchedAt}
 let news = LS.get('news', null);      // {news, days, fetchedAt}
 let lastFx = LS.get('fx', null);      // 最近一次成功的匯率
 let events = LS.get('events', null);  // {events, sources, today, fetchedAt}
+let hist = LS.get('hist', null);      // {rows:[...], fetchedAt}
+let histRange = LS.get('histRange', '3m'), histAll = false, loadingHist = false, histError = null, lastHistAt = 0, histHover = null;
 let spark = LS.get('spark', null);    // {spark: {code: {points, ref, start, end}}, fetchedAt}
 let loadingSpark = false, lastSparkAt = 0, sparkKey = '';
 let evFilter = 'all';
@@ -888,6 +921,317 @@ function nearEvent(code) {
   return events.events.find(e => e.type !== 'deadline' && e.codes.includes(code) && e.date >= today && isoDays(today, e.date) <= 7) || null;
 }
 
+/* ================= 每日市值 ================= */
+async function refreshHist(force) {
+  if (!cfg.url || loadingHist || !data) return;
+  if (!force && hist && Date.now() - lastHistAt < 10 * 60e3) return;
+  loadingHist = true;
+  try {
+    const r = await call('GET', { action: 'history' });
+    hist = { rows: r.rows, fetchedAt: Date.now() }; LS.set('hist', hist);
+    histError = null; lastHistAt = Date.now();
+  } catch (e) {
+    histError = /未知的動作/.test(e.message) ? '後端還是舊版：請把新的 Code.gs 貼到 Apps Script，執行 setup，並部署新版本' : '市值紀錄讀取失敗：' + e.message;
+  } finally { loadingHist = false; renderHist(); }
+}
+/** 把 App 的損益設定（是否扣手續費、折扣）同步到後端，讓每日紀錄的損益和畫面一致 */
+async function syncPnlSettings() {
+  if (!cfg.url) return;
+  const want = JSON.stringify({ fees: !!cfg.fees, discount: Number(cfg.discount) || 10 });
+  try { await call('POST', null, { action: 'settings', settings: JSON.parse(want) }); LS.set('pnlSynced', cfg.url + want); }
+  catch (e) { /* 舊版後端沒有這個功能：不影響其他功能 */ }
+}
+/** 與前日變化：增加紅色 ▲、減少綠色 ▼，顯示確切金額（顏色跟著「漲跌顏色」設定） */
+function chgEl(amount, pctv, opts) {
+  if (amount == null || !isFinite(amount)) return el('span', { class: 'chg flat' }, (opts && opts.first) ? '第一筆' : '—');
+  const a = Math.round(amount);
+  const p = pctv != null && isFinite(pctv) ? '（' + (pctv > 0 ? '+' : pctv < 0 ? '−' : '') + Math.abs(pctv * 100).toFixed(2) + '%）' : '';
+  if (a > 0) return el('span', { class: 'chg up', 'aria-label': '增加 ' + NF0.format(a) + ' 元' }, '▲ ' + NF0.format(a) + p);
+  if (a < 0) return el('span', { class: 'chg down', 'aria-label': '減少 ' + NF0.format(-a) + ' 元' }, '▼ ' + NF0.format(-a) + p);
+  return el('span', { class: 'chg flat' }, '— 0' + p);
+}
+const wk = (iso) => '日一二三四五六'[new Date(iso + 'T00:00:00Z').getUTCDay()];
+const isoMs = (iso) => Date.parse(iso + 'T00:00:00Z');
+function histRows() {
+  if (!hist || !hist.rows.length) return [];
+  const rows = hist.rows;
+  if (histRange === 'all') return rows;
+  const days = { '1m': 31, '3m': 92, '6m': 183, '1y': 366 }[histRange] || 92;
+  const lastMs = isoMs(rows[rows.length - 1].date);
+  return rows.filter(r => lastMs - isoMs(r.date) < days * 864e5);
+}
+function renderHist() {
+  const list = $('#histList'), box = $('#histBox'), totalEl = $('#histTotal'), sub = $('#histSub');
+  document.querySelectorAll('#histRanges button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.r === histRange)));
+  list.replaceChildren(); box.replaceChildren(); sub.replaceChildren();
+  $('#btnExport').disabled = !(hist && hist.rows.length);
+  const msg = (t) => { box.append(el('div', { class: 'ch-msg' }, t)); totalEl.textContent = '—'; };
+  if (!cfg.url) { msg('設定連線後會顯示每日市值'); return; }
+  if (histError && !hist) { msg(histError); return; }
+  if (!hist) { msg(loadingHist ? '載入中…' : '尚未讀取'); return; }
+  if (histError) list.append(el('div', { class: 'notice err', style: 'margin:10px 14px' }, histError));
+  const all = hist.rows;
+  if (!all.length) {
+    const tp = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Taipei', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date());
+    msg(tp >= '13:31' ? '今天的紀錄會在幾分鐘內寫入，請稍後重新整理。' : '還沒有紀錄。今天 13:30 收盤後會記下第一筆。');
+    return;
+  }
+  const rows = histRows();
+  const last = all[all.length - 1];
+  const hov = histHover != null ? rows[histHover] : null;
+  const show = hov || last;
+  totalEl.replaceChildren(el('small', null, 'NT$'), NF0.format(show.total));
+  sub.append(el('span', null, (+show.date.slice(5, 7)) + '/' + (+show.date.slice(8)) + '（' + wk(show.date) + '）' + show.time + ' 紀錄'),
+    el('span', null, '與前日 ', chgEl(show.dMv, show.dPct, { first: show === all[0] })));
+  if (!hov && rows.length > 1) {
+    const f = rows[0];
+    sub.append(el('span', null, { '1m': '近 1 月', '3m': '近 3 月', '6m': '近 6 月', '1y': '近 1 年', all: '全部期間' }[histRange] + ' ', chgEl(last.total - f.total, f.total ? (last.total - f.total) / f.total : null)));
+  }
+  drawHist(box, rows);
+  // 每日列表（新的在上）
+  const desc = all.slice().reverse();
+  const shown = histAll ? desc : desc.slice(0, 10);
+  shown.forEach((r, i) => {
+    const isFirst = r === all[0];
+    list.append(el('div', { class: 'hrec' },
+      el('span', { class: 'd' }, (+r.date.slice(5, 7)) + '/' + (+r.date.slice(8)), el('small', null, '週' + wk(r.date))),
+      el('span', { class: 'v' }, NF0.format(r.total)),
+      el('span', { class: 'c' }, chgEl(r.dMv, r.dPct, { first: isFirst })),
+      r.note ? el('span', { class: 'n' }, r.note) : null));
+  });
+  if (desc.length > 10) list.append(el('button', { class: 'hist-more', type: 'button', onclick: () => { histAll = !histAll; renderHist(); } }, histAll ? '只顯示最近 10 筆' : '顯示全部 ' + desc.length + ' 筆'));
+}
+function drawHist(box, rows) {
+  if (!rows.length) return;
+  const W = Math.max(240, Math.round(box.clientWidth || 320)), H = Math.round(box.clientHeight || 200);
+  const padT = 10, padB = 22, padL = 2, padR = 62;
+  const pw = W - padL - padR, ph = H - padT - padB, n = rows.length;
+  const t0 = isoMs(rows[0].date), t1 = isoMs(rows[n - 1].date);
+  const X = (i) => n === 1 ? padL + pw / 2 : padL + pw * (isoMs(rows[i].date) - t0) / (t1 - t0 || 1);
+  // Y 軸只依市值決定（成本差很多時才不會把市值的起伏壓平）；成本線在範圍內才畫
+  const vals = rows.map(r => r.total);
+  let lo = Math.min(...vals), hi = Math.max(...vals);
+  const span = hi - lo || Math.max(hi * 0.02, 1);
+  lo -= span * 0.1; hi += span * 0.1;
+  const lastCost = rows[n - 1].cost;
+  const costIn = rows.some(r => r.cost > 0 && r.cost >= lo && r.cost <= hi);
+  $('#histLegend').replaceChildren(el('span', null, el('i'), '總市值'),
+    lastCost > 0 ? el('span', null, el('i', { class: 'cost' }), costIn ? '總成本' : '總成本 ' + NF0.format(lastCost) + '（低於圖的範圍）') : '');
+  const Y = (v) => padT + ph * (1 - (v - lo) / (hi - lo));
+  const svg = sv('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': '每日總市值趨勢：' + rows.map(r => r.date + ' ' + NF0.format(r.total)).slice(-5).join('，') });
+  const fmtAxis = (v) => v >= 1e8 ? (v / 1e8).toFixed(2) + '億' : v >= 1e4 ? NF0.format(Math.round(v / 1e4)) + '萬' : NF0.format(Math.round(v));
+  [hi - span * 0.1, lo + span * 0.1].forEach(v => {
+    svg.append(sv('line', { class: 'ch-grid', x1: padL, x2: padL + pw, y1: Y(v).toFixed(1), y2: Y(v).toFixed(1) }));
+    const t = sv('text', { class: 'ch-axis', x: W - 2, y: (Y(v) + 4).toFixed(1), 'text-anchor': 'end' }); t.textContent = fmtAxis(v); svg.append(t);
+  });
+  // 總成本（虛線）
+  const costPts = rows.map((r, i) => r.cost > 0 && r.cost >= lo && r.cost <= hi ? [X(i), Y(r.cost)] : null).filter(Boolean);
+  if (costPts.length > 1) svg.append(sv('path', { class: 'ch-ref', d: costPts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join('') }));
+  const line = rows.map((r, i) => (i ? 'L' : 'M') + X(i).toFixed(1) + ' ' + Y(r.total).toFixed(1)).join('');
+  if (n > 1) {
+    const path = sv('path', { class: 'ch-line', d: line }); path.style.stroke = 'var(--accent)'; svg.append(path);
+  }
+  rows.forEach((r, i) => { if (n <= 31 || i === n - 1) { const c = sv('circle', { cx: X(i).toFixed(1), cy: Y(r.total).toFixed(1), r: i === n - 1 ? 4 : 2.5 }); c.style.fill = 'var(--accent)'; svg.append(c); } });
+  const xl = n === 1 ? [[padL + pw / 2, rows[0].date, 'middle']] : [[padL, rows[0].date, 'start'], [padL + pw, rows[n - 1].date, 'end']];
+  xl.forEach(([x, iso, a]) => { const t = sv('text', { class: 'ch-axis', x: x.toFixed(1), y: H - 5, 'text-anchor': a }); t.textContent = (+iso.slice(5, 7)) + '/' + (+iso.slice(8)); svg.append(t); });
+  const cross = sv('line', { class: 'ch-cross', y1: padT, y2: padT + ph, visibility: 'hidden' }); svg.append(cross);
+  const pick = (ev) => {
+    const r = svg.getBoundingClientRect(), px = (ev.clientX - r.left) * (W / r.width);
+    let best = 0, bd = Infinity;
+    for (let i = 0; i < n; i++) { const d = Math.abs(X(i) - px); if (d < bd) { bd = d; best = i; } }
+    cross.setAttribute('x1', X(best).toFixed(1)); cross.setAttribute('x2', X(best).toFixed(1)); cross.setAttribute('visibility', 'visible');
+    if (histHover !== best) { histHover = best; renderHistHead(rows); }
+  };
+  const leave = () => { cross.setAttribute('visibility', 'hidden'); if (histHover != null) { histHover = null; renderHistHead(rows); } };
+  svg.addEventListener('pointerdown', pick); svg.addEventListener('pointermove', pick);
+  svg.addEventListener('pointerleave', leave); svg.addEventListener('pointercancel', leave);
+  svg.addEventListener('pointerup', (ev) => { if (ev.pointerType !== 'mouse') leave(); });
+  box.append(svg);
+}
+/** 滑過趨勢圖時只更新上方數字（不重畫圖，十字線才不會跳掉） */
+function renderHistHead(rows) {
+  const all = hist.rows, last = all[all.length - 1];
+  const show = histHover != null ? rows[histHover] : last;
+  $('#histTotal').replaceChildren(el('small', null, 'NT$'), NF0.format(show.total));
+  const sub = $('#histSub'); sub.replaceChildren();
+  sub.append(el('span', null, (+show.date.slice(5, 7)) + '/' + (+show.date.slice(8)) + '（' + wk(show.date) + '）' + show.time + ' 紀錄'),
+    el('span', null, '與前日 ', chgEl(show.dMv, show.dPct, { first: show === all[0] })));
+  if (histHover == null && rows.length > 1) {
+    const f = rows[0];
+    sub.append(el('span', null, { '1m': '近 1 月', '3m': '近 3 月', '6m': '近 6 月', '1y': '近 1 年', all: '全部期間' }[histRange] + ' ', chgEl(last.total - f.total, f.total ? (last.total - f.total) / f.total : null)));
+  }
+}
+document.querySelectorAll('#histRanges button').forEach(b => b.addEventListener('click', () => { histRange = b.dataset.r; LS.set('histRange', histRange); histHover = null; renderHist(); }));
+window.addEventListener('resize', () => { if (!$('#panel-hist').classList.contains('hidden') || window.innerWidth >= 960) renderHist(); });
+
+/* ---------- 匯出 .xlsx（Excel、Numbers 都能開；不依賴外部套件） ---------- */
+const XML_ESC = (v) => String(v).replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+function colName(i) { let s = ''; i++; while (i) { const m = (i - 1) % 26; s = String.fromCharCode(65 + m) + s; i = Math.floor((i - 1) / 26); } return s; }
+const excelDate = (iso) => (Date.parse(iso + 'T00:00:00Z') - Date.UTC(1899, 11, 30)) / 864e5;
+const CRC_T = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+function crc32(buf) { let c = 0xFFFFFFFF; for (let i = 0; i < buf.length; i++) c = CRC_T[(c ^ buf[i]) & 0xFF] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; }
+/** 最簡單的 ZIP（不壓縮），xlsx 本身就是 zip */
+function zipStore(files) {
+  const enc = new TextEncoder(), parts = [], central = [];
+  let offset = 0;
+  const d = new Date(), dosTime = (d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1), dosDate = ((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate();
+  files.forEach(([name, text]) => {
+    const nameB = enc.encode(name), data = enc.encode(text), crc = crc32(data);
+    const h = new DataView(new ArrayBuffer(30));
+    h.setUint32(0, 0x04034b50, true); h.setUint16(4, 20, true); h.setUint16(6, 0x0800, true); h.setUint16(8, 0, true);
+    h.setUint16(10, dosTime, true); h.setUint16(12, dosDate, true); h.setUint32(14, crc, true);
+    h.setUint32(18, data.length, true); h.setUint32(22, data.length, true); h.setUint16(26, nameB.length, true); h.setUint16(28, 0, true);
+    parts.push(new Uint8Array(h.buffer), nameB, data);
+    const c = new DataView(new ArrayBuffer(46));
+    c.setUint32(0, 0x02014b50, true); c.setUint16(4, 20, true); c.setUint16(6, 20, true); c.setUint16(8, 0x0800, true); c.setUint16(10, 0, true);
+    c.setUint16(12, dosTime, true); c.setUint16(14, dosDate, true); c.setUint32(16, crc, true); c.setUint32(20, data.length, true); c.setUint32(24, data.length, true);
+    c.setUint16(28, nameB.length, true); c.setUint32(42, offset, true);
+    central.push(new Uint8Array(c.buffer), nameB);
+    offset += 30 + nameB.length + data.length;
+  });
+  const cdSize = central.reduce((a, b) => a + b.length, 0);
+  const e = new DataView(new ArrayBuffer(22));
+  e.setUint32(0, 0x06054b50, true); e.setUint16(8, files.length, true); e.setUint16(10, files.length, true); e.setUint32(12, cdSize, true); e.setUint32(16, offset, true);
+  return new Blob(parts.concat(central, [new Uint8Array(e.buffer)]), { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+}
+// 樣式編號：0 一般、1 標題、2 日期、3 整數、4 兩位小數、5 匯率、6 百分比、7/8 變化▲紅/▼綠、9/10 變化%▲紅/▼綠、11/12 整數紅/綠、13/14 變化持平、15/16 百分比紅/綠
+const XS = { gen: 0, head: 1, date: 2, int: 3, dec2: 4, fx: 5, pct: 6, chgUp: 7, chgDn: 8, pctUp: 9, pctDn: 10, intUp: 11, intDn: 12, chgFlat: 13, pctFlat: 14, retUp: 15, retDn: 16, frac: 17 };
+function stylesXml(upColor, dnColor) {
+  return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+    + '<numFmts count="5"><numFmt numFmtId="164" formatCode="yyyy/mm/dd"/><numFmt numFmtId="165" formatCode="0.000"/>'
+    + '<numFmt numFmtId="166" formatCode="&quot;▲&quot;#,##0;&quot;▼&quot;#,##0;0"/><numFmt numFmtId="167" formatCode="&quot;▲&quot;0.00%;&quot;▼&quot;0.00%;0.00%"/><numFmt numFmtId="168" formatCode="#,##0.####"/></numFmts>'
+    + '<fonts count="4"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font>'
+    + `<font><sz val="11"/><color rgb="FF${upColor}"/><name val="Calibri"/></font><font><sz val="11"/><color rgb="FF${dnColor}"/><name val="Calibri"/></font></fonts>`
+    + '<fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFF2F4F7"/><bgColor indexed="64"/></patternFill></fill></fills>'
+    + '<borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border><border><left/><right/><top/><bottom style="thin"><color rgb="FFB8C0CC"/></bottom><diagonal/></border></borders>'
+    + '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="18">'
+    + '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>'
+    + '<xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>'
+    + '<xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>'
+    + '<xf numFmtId="3" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>'
+    + '<xf numFmtId="4" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>'
+    + '<xf numFmtId="165" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>'
+    + '<xf numFmtId="10" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>'
+    + '<xf numFmtId="166" fontId="2" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyFont="1"/>'
+    + '<xf numFmtId="166" fontId="3" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyFont="1"/>'
+    + '<xf numFmtId="167" fontId="2" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyFont="1"/>'
+    + '<xf numFmtId="167" fontId="3" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyFont="1"/>'
+    + '<xf numFmtId="3" fontId="2" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyFont="1"/>'
+    + '<xf numFmtId="3" fontId="3" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyFont="1"/>'
+    + '<xf numFmtId="166" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>'
+    + '<xf numFmtId="167" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>'
+    + '<xf numFmtId="10" fontId="2" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyFont="1"/>'
+    + '<xf numFmtId="10" fontId="3" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyFont="1"/>'
+    + '<xf numFmtId="168" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>'
+    + '</cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>';
+}
+function buildXlsx(rows, details) {
+  const sst = [], sstIdx = new Map();
+  const si = (v) => { v = String(v); if (!sstIdx.has(v)) { sstIdx.set(v, sst.length); sst.push(v); } return sstIdx.get(v); };
+  const cell = (ref, v, style) => {
+    if (v == null || v === '' || (typeof v === 'number' && !isFinite(v))) return '';
+    if (typeof v === 'number') return `<c r="${ref}"${style ? ` s="${style}"` : ''}><v>${v}</v></c>`;
+    return `<c r="${ref}" t="s"${style ? ` s="${style}"` : ''}><v>${si(v)}</v></c>`;
+  };
+  const sign = (v, up, dn, flat) => v > 0 ? up : v < 0 ? dn : flat;
+  const sheet = (header, data, widths, extra) => {
+    let x = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+      + '<sheetPr><pageSetUpPr fitToPage="1"/></sheetPr><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><sheetFormatPr defaultRowHeight="16"/>'
+      + '<cols>' + widths.map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`).join('') + '</cols><sheetData>';
+    x += '<row r="1" ht="22" customHeight="1">' + header.map((h, i) => cell(colName(i) + '1', h, XS.head)).join('') + '</row>';
+    data.forEach((r, ri) => { x += `<row r="${ri + 2}">` + r.map(([v, st], ci) => cell(colName(ci) + (ri + 2), v, st)).join('') + '</row>'; });
+    x += '</sheetData>' + `<autoFilter ref="A1:${colName(header.length - 1)}${Math.max(2, data.length + 1)}"/>`
+      + '<pageMargins left="0.4" right="0.4" top="0.5" bottom="0.5" header="0.3" footer="0.3"/><pageSetup paperSize="9" orientation="landscape" fitToWidth="1" fitToHeight="0"/>'
+      + (extra || '') + '</worksheet>';
+    return x;
+  };
+  const H1 = ['日期', '紀錄時間', '總市值', '台股市值', '美股市值(台幣)', '美股市值(美元)', '美元匯率', '總成本', '未實現損益', '報酬率', '與前日市值變化', '與前日變化%', '與前日損益變化', '持股檔數', '備註'];
+  const d1 = rows.map(r => [[excelDate(r.date), XS.date], [r.time], [r.total, XS.int], [r.tw, XS.int], [r.usT, XS.int], [r.usUsd, XS.dec2], [r.fx, XS.fx],
+    [r.cost, XS.int], [r.pnl, sign(r.pnl, XS.intUp, XS.intDn, XS.int)], [r.ret, sign(r.ret, XS.retUp, XS.retDn, XS.pct)],
+    [r.dMv, sign(r.dMv, XS.chgUp, XS.chgDn, XS.chgFlat)], [r.dPct, sign(r.dPct, XS.pctUp, XS.pctDn, XS.pctFlat)], [r.dPnl, sign(r.dPnl, XS.chgUp, XS.chgDn, XS.chgFlat)],
+    [r.count, XS.int], [r.note]]);
+  const H2 = ['日期', '代號', '名稱', '市場', '股數', '價格', '幣別', '市值(原幣)', '市值(台幣)', '成本(台幣)', '未實現損益(台幣)', '報價時間', '備註'];
+  const num = (v) => v === '' || v == null ? null : Number(v);
+  const d2 = (details || []).map(r => [[excelDate(String(r[0])), XS.date], [String(r[1])], [r[3] === '美股' ? shortName(r[2]) : r[2]], [r[3]], [num(r[4]), Number.isInteger(num(r[4])) ? XS.int : XS.frac], [num(r[5]), XS.dec2], [r[6]],
+    [num(r[7]), XS.dec2], [num(r[8]), XS.int], [num(r[9]), XS.int], [num(r[10]), sign(num(r[10]), XS.intUp, XS.intDn, XS.int)], [r[11]], [r[12]]]);
+  const n = rows.length, S = "'每日市值'";
+  // 原生折線圖：總市值（實線）＋總成本（虛線），附上快取數值，打開就看得到
+  const cache = (vals, fmt) => `<c:numCache><c:formatCode>${fmt}</c:formatCode><c:ptCount val="${vals.length}"/>` + vals.map((v, i) => v == null ? '' : `<c:pt idx="${i}"><c:v>${v}</c:v></c:pt>`).join('') + '</c:numCache>';
+  const ser = (idx, col, title, vals, color, dash) => `<c:ser><c:idx val="${idx}"/><c:order val="${idx}"/><c:tx><c:strRef><c:f>${S}!$${col}$1</c:f><c:strCache><c:ptCount val="1"/><c:pt idx="0"><c:v>${title}</c:v></c:pt></c:strCache></c:strRef></c:tx>`
+    + `<c:spPr><a:ln w="${dash ? 19050 : 28575}" cap="rnd"><a:solidFill><a:srgbClr val="${color}"/></a:solidFill>${dash ? '<a:prstDash val="dash"/>' : ''}<a:round/></a:ln></c:spPr><c:marker><c:symbol val="${n <= 31 && !dash ? 'circle' : 'none'}"/>${n <= 31 && !dash ? `<c:size val="4"/><c:spPr><a:solidFill><a:srgbClr val="${color}"/></a:solidFill><a:ln><a:noFill/></a:ln></c:spPr>` : ''}</c:marker>`
+    + `<c:cat><c:numRef><c:f>${S}!$A$2:$A$${n + 1}</c:f>${cache(rows.map(r => excelDate(r.date)), 'yyyy/mm/dd')}</c:numRef></c:cat>`
+    + `<c:val><c:numRef><c:f>${S}!$${col}$2:$${col}$${n + 1}</c:f>${cache(vals, '#,##0')}</c:numRef></c:val><c:smooth val="0"/></c:ser>`;
+  const yv = rows.map(r => r.total);
+  const yLo = Math.min(...yv), yHi = Math.max(...yv), ySpan = Math.max(yHi - yLo, yHi * 0.02, 1);
+  const step = Math.pow(10, Math.floor(Math.log10(ySpan / 4)));
+  const yMin = Math.max(0, Math.floor((yLo - ySpan * 0.1) / step) * step), yMax = Math.ceil((yHi + ySpan * 0.1) / step) * step;
+  const chart = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+    + '<c:roundedCorners val="0"/><c:chart><c:title><c:tx><c:rich><a:bodyPr/><a:lstStyle/><a:p><a:pPr><a:defRPr sz="1400" b="1"/></a:pPr><a:r><a:rPr lang="zh-TW" sz="1400" b="1"/><a:t>每日總市值趨勢（台幣，每日 13:30）</a:t></a:r></a:p></c:rich></c:tx><c:overlay val="0"/></c:title>'
+    + '<c:autoTitleDeleted val="0"/><c:plotArea><c:layout/><c:lineChart><c:grouping val="standard"/><c:varyColors val="0"/>'
+    + ser(0, 'C', '總市值', rows.map(r => r.total), '2B4C8C', false) + (rows.some(r => r.cost >= yMin && r.cost <= yMax) ? ser(1, 'H', '總成本', rows.map(r => r.cost || null), '8A93A6', true) : '')
+    + '<c:marker val="1"/><c:axId val="50010001"/><c:axId val="50010002"/></c:lineChart>'
+    + '<c:catAx><c:axId val="50010001"/><c:scaling><c:orientation val="minMax"/></c:scaling><c:delete val="0"/><c:axPos val="b"/><c:numFmt formatCode="m/d" sourceLinked="0"/><c:majorTickMark val="out"/><c:minorTickMark val="none"/><c:tickLblPos val="low"/><c:crossAx val="50010002"/><c:crosses val="autoZero"/><c:auto val="1"/><c:lblAlgn val="ctr"/><c:lblOffset val="100"/><c:noMultiLvlLbl val="0"/></c:catAx>'
+    + `<c:valAx><c:axId val="50010002"/><c:scaling><c:orientation val="minMax"/><c:max val="${yMax}"/><c:min val="${yMin}"/></c:scaling>`
+    + '<c:delete val="0"/><c:axPos val="l"/><c:majorGridlines><c:spPr><a:ln w="6350"><a:solidFill><a:srgbClr val="E2E6EC"/></a:solidFill></a:ln></c:spPr></c:majorGridlines><c:numFmt formatCode="#,##0" sourceLinked="0"/><c:majorTickMark val="none"/><c:minorTickMark val="none"/><c:tickLblPos val="nextTo"/><c:crossAx val="50010001"/><c:crosses val="autoZero"/><c:crossBetween val="between"/></c:valAx>'
+    + '</c:plotArea><c:legend><c:legendPos val="b"/><c:overlay val="0"/></c:legend><c:plotVisOnly val="1"/><c:dispBlanksAs val="gap"/></c:chart></c:chartSpace>';
+  const drawing = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">'
+    + '<xdr:twoCellAnchor editAs="oneCell"><xdr:from><xdr:col>15</xdr:col><xdr:colOff>190500</xdr:colOff><xdr:row>1</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from><xdr:to><xdr:col>24</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>22</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:to>'
+    + '<xdr:graphicFrame macro=""><xdr:nvGraphicFramePr><xdr:cNvPr id="2" name="每日總市值趨勢"/><xdr:cNvGraphicFramePr/></xdr:nvGraphicFramePr><xdr:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/></xdr:xfrm>'
+    + '<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/chart"><c:chart xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:id="rId1"/></a:graphicData></a:graphic></xdr:graphicFrame><xdr:clientData/></xdr:twoCellAnchor></xdr:wsDr>';
+  const sheet1 = sheet(H1, d1, [12, 9, 13, 13, 14, 14, 9, 13, 13, 9, 15, 12, 15, 9, 34], n ? '<drawing r:id="rId1"/>' : '');
+  const sheet2 = sheet(H2, d2, [12, 8, 16, 7, 10, 11, 7, 14, 13, 13, 15, 17, 22]);
+  const now = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
+  const files = [
+    ['[Content_Types].xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/>'
+      + '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/worksheets/sheet2.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+      + '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/><Override PartName="/xl/sharedStrings.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml"/>'
+      + (n ? '<Override PartName="/xl/drawings/drawing1.xml" ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"/><Override PartName="/xl/charts/chart1.xml" ContentType="application/vnd.openxmlformats-officedocument.drawingml.chart+xml"/>' : '')
+      + '<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/><Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/></Types>'],
+    ['_rels/.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/></Relationships>'],
+    ['docProps/core.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><dc:title>持股每日市值</dc:title><dc:creator>持股新聞</dc:creator><dcterms:created xsi:type="dcterms:W3CDTF">${now}</dcterms:created><dcterms:modified xsi:type="dcterms:W3CDTF">${now}</dcterms:modified></cp:coreProperties>`],
+    ['docProps/app.xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"><Application>持股新聞</Application></Properties>'],
+    ['xl/workbook.xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><bookViews><workbookView/></bookViews><sheets><sheet name="每日市值" sheetId="1" r:id="rId1"/><sheet name="市值明細" sheetId="2" r:id="rId2"/></sheets>'
+      + `<definedNames><definedName name="_xlnm._FilterDatabase" localSheetId="0" hidden="1">${S}!$A$1:$O$${Math.max(2, n + 1)}</definedName><definedName name="_xlnm._FilterDatabase" localSheetId="1" hidden="1">'市值明細'!$A$1:$M$${Math.max(2, d2.length + 1)}</definedName></definedNames></workbook>`],
+    ['xl/_rels/workbook.xml.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/><Relationship Id="rId4" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings" Target="sharedStrings.xml"/></Relationships>'],
+    ['xl/styles.xml', stylesXml('D23B33', '178A4C')],
+    ['xl/worksheets/sheet1.xml', sheet1],
+    ['xl/worksheets/sheet2.xml', sheet2],
+  ];
+  if (n) files.push(
+    ['xl/worksheets/_rels/sheet1.xml.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" Target="../drawings/drawing1.xml"/></Relationships>'],
+    ['xl/drawings/drawing1.xml', drawing],
+    ['xl/drawings/_rels/drawing1.xml.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart" Target="../charts/chart1.xml"/></Relationships>'],
+    ['xl/charts/chart1.xml', chart]);
+  // sharedStrings 最後產生（上面產生儲存格時才收集完字串）
+  files.push(['xl/sharedStrings.xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="' + sst.length + '" uniqueCount="' + sst.length + '">' + sst.map(v => '<si><t xml:space="preserve">' + XML_ESC(v) + '</t></si>').join('') + '</sst>']);
+  return zipStore(files);
+}
+async function exportHist() {
+  const b = $('#btnExport');
+  b.disabled = true; const label = b.textContent; b.textContent = '產生中…';
+  try {
+    const r = await call('GET', { action: 'history', detail: '1' });
+    if (!r.rows.length) { toast('還沒有紀錄可以匯出'); return; }
+    const blob = buildXlsx(r.rows, r.details);
+    const name = '持股市值紀錄_' + r.rows[r.rows.length - 1].date + '.xlsx';
+    const file = new File([blob], name, { type: blob.type });
+    // 手機：開分享面板（可存到「檔案」或直接用 Numbers／Excel 開）；電腦：直接下載
+    const touch = window.matchMedia && window.matchMedia('(pointer:coarse)').matches;
+    if (touch && navigator.canShare && navigator.canShare({ files: [file] })) {
+      try { await navigator.share({ files: [file], title: name }); return; }
+      catch (e) { if (e && e.name === 'AbortError') return; }
+    }
+    const url = URL.createObjectURL(blob);
+    const a = el('a', { href: url, download: name, style: 'display:none' });
+    document.body.append(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60e3);
+    toast('已匯出 ' + name);
+  } catch (e) {
+    alert('匯出失敗：' + (/未知的動作/.test(e.message) ? '後端還是舊版，請先更新 Code.gs' : e.message));
+  } finally { b.disabled = false; b.textContent = label; }
+}
+$('#btnExport').addEventListener('click', exportHist);
+
 /* ================= 提示 ================= */
 function renderNotices(c) {
   const box = $('#notices'); box.replaceChildren();
@@ -909,6 +1253,7 @@ function renderAll() {
   renderSummary(c); renderNotices(c); renderHoldings(c); renderNews();
   $('#btnRefresh').classList.toggle('spin', loadingData || loadingNews || loadingEvents);
   renderEvents();
+  renderHist();
   $('#sortSel').value = cfg.sort;
 }
 
@@ -963,7 +1308,7 @@ async function refreshSpark(force) {
 }
 async function refreshAll(force) {
   await refreshData();
-  const jobs = [refreshSpark(force)];
+  const jobs = [refreshSpark(force), refreshHist(force)];
   if (force || Date.now() - lastNewsAt > (marketOpen() ? 10 : 30) * 60e3) jobs.push(refreshNews());
   if (force || Date.now() - lastEventsAt > 3 * 3600e3) jobs.push(refreshEvents());
   await Promise.all(jobs);
@@ -1477,9 +1822,10 @@ $('#formSettings').addEventListener('submit', async (ev) => {
   cfg = Object.assign({}, cfg, c, { fees: $('#sFees').checked, discount: disc, days: +$('#sDays').value, en: $('#sEn').checked, strict: $('#sStrict').checked, color: $('#sColor').value });
   LS.set('cfg', cfg);
   closeDlg($('#dlgSettings'));
-  if (changedConn) { data = null; news = null; events = null; LS.del('data'); LS.del('news'); LS.del('events'); dataError = null; dataErrorCode = null; }
+  if (changedConn) { data = null; news = null; events = null; hist = null; LS.del('data'); LS.del('news'); LS.del('events'); LS.del('hist'); dataError = null; dataErrorCode = null; }
   if (changedNews) { news = null; LS.del('news'); }
   renderAll();
+  syncPnlSettings();
   if (changedConn) await refreshAll(true);
   else if (changedNews) refreshNews();
 });
@@ -1490,8 +1836,8 @@ $('#btnRefresh').addEventListener('click', () => refreshAll(true));
 $('#fab').addEventListener('click', () => openEdit());
 $('#sortSel').addEventListener('change', e => { cfg.sort = e.target.value; LS.set('cfg', cfg); renderAll(); });
 function selectTab(which) {
-  if (!['hold', 'news', 'events'].includes(which)) which = 'hold';
-  [['hold', '#tabHold', '#panel-hold'], ['news', '#tabNews', '#panel-news'], ['events', '#tabEvents', '#panel-events']].forEach(([k, tab, panel]) => {
+  if (!['hold', 'news', 'hist', 'events'].includes(which)) which = 'hold';
+  [['hold', '#tabHold', '#panel-hold'], ['news', '#tabNews', '#panel-news'], ['hist', '#tabHist', '#panel-hist'], ['events', '#tabEvents', '#panel-events']].forEach(([k, tab, panel]) => {
     $(tab).setAttribute('aria-selected', String(k === which));
     $(panel).classList.toggle('hidden', k !== which);
   });
@@ -1500,6 +1846,7 @@ function selectTab(which) {
 $('#tabHold').addEventListener('click', () => selectTab('hold'));
 $('#tabNews').addEventListener('click', () => selectTab('news'));
 $('#tabEvents').addEventListener('click', () => selectTab('events'));
+$('#tabHist').addEventListener('click', () => { selectTab('hist'); renderHist(); refreshHist(false); });
 
 /* ================= 啟動 ================= */
 (function init() {
@@ -1511,13 +1858,14 @@ $('#tabEvents').addEventListener('click', () => selectTab('events'));
     if (s && validUrl(s.url)) {
       const changed = s.url !== cfg.url || s.token !== cfg.token;
       cfg = Object.assign({}, cfg, s); LS.set('cfg', cfg);
-      if (changed) { data = null; news = null; events = null; LS.del('data'); LS.del('news'); LS.del('events'); }
+      if (changed) { data = null; news = null; events = null; hist = null; LS.del('data'); LS.del('news'); LS.del('events'); LS.del('hist'); }
       setTimeout(() => toast('已套用設定碼'), 300);
     }
   }
   selectTab(LS.get('tab', 'hold'));
   renderAll();
   if (cfg.url) refreshAll(true);
+  if (cfg.url && LS.get('pnlSynced', '') !== cfg.url + JSON.stringify({ fees: !!cfg.fees, discount: Number(cfg.discount) || 10 })) syncPnlSettings();
 })();
 })();
 </script>

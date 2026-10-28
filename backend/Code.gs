@@ -7,6 +7,7 @@
  *   3. 美股報價：Yahoo Finance（query1 → query2 備援）
  *   4. 美元兌台幣匯率：Yahoo（TWD=X）→ open.er-api.com 備援
  *   5. 每檔股票的新聞：Google 新聞 RSS
+ *   8. 每日市值：台北時間每天 13:30（等收盤價公布）記錄總市值與每檔明細到「每日市值」「市值明細」工作表
  *   7. 走勢圖：Yahoo 分鐘線＋每分鐘排程紀錄的證交所報價（台股 Yahoo 延遲 20 分鐘，用紀錄補上）
  *   6. 重要時程：台股法說會（公開資訊觀測站）、美股財報日與除息日（Yahoo）、
  *      台股除權息（證交所／櫃買預告表）、台股財報與月營收法定公告期限
@@ -17,7 +18,7 @@
 var SHEET_HOLD = '持倉';
 var SHEET_INFO = '說明';
 var HEADERS = ['代號', '市場', '名稱', '股數', '平均成本', '新聞關鍵字', '備註'];
-var VERSION = '1.3.0';
+var VERSION = '1.4.0';
 
 var CACHE_QUOTE_SEC = 15;        // 開盤中報價快取
 var CACHE_QUOTE_CLOSED_SEC = 600; // 收盤後報價快取（價格不會變，省額度）
@@ -55,6 +56,7 @@ function setup() {
   ]);
   info.setColumnWidth(1, 110);
   info.setColumnWidth(2, 520);
+  ensureDailySheets_();
   var rec = '';
   try { ensureRecorder_(); rec = '已建立盤中紀錄排程（每分鐘）。'; }
   catch (e) { rec = '盤中紀錄排程建立失敗：' + (e && e.message) + '。台股當日走勢最近 20 分鐘會缺資料。'; }
@@ -77,6 +79,7 @@ function removeRecorder() {
 /** 排程呼叫：只在台股開盤時間做事，其他時間立刻結束 */
 function recordTick() {
   flushUsage_(true);
+  try { snapshotDaily_(); } catch (e) { Logger.log('每日市值紀錄失敗：' + (e && e.message)); }
   if (!marketOpen_('TW')) return;
   var tw = readHoldings_().filter(function (h) { return h.market === 'TW'; });
   if (!tw.length) return;
@@ -111,6 +114,7 @@ function doGet(e) {
       case 'chart': return chart_(String(p.code || ''), String(p.range || '1d'));
       case 'live': return live_(String(p.code || ''));
       case 'spark': return spark_();
+      case 'history': return history_(p.detail === '1');
       case 'diagnose': return diagnose_();
       case 'ping': return { version: VERSION };
       default: throw userError_('未知的動作：' + p.action);
@@ -130,6 +134,7 @@ function doPost(e) {
       switch (body.action) {
         case 'upsert': return upsertHolding_(body.holding || {}, body.originalCode);
         case 'delete': return deleteHolding_(String(body.code || ''));
+        case 'settings': return saveSettings_(body.settings || {});
         default: throw userError_('未知的動作：' + body.action);
       }
     } finally {
@@ -687,6 +692,8 @@ function getFx_() {
 function getData_() {
   var holdings = readHoldings_();
   var quotes = getQuotes_(holdings);
+  // 排程沒在跑時的備援：13:31 以後有人打開 App，就補記今天（已記過會立刻略過）
+  try { if (!cacheGet_('snap:' + tpeParts_(Date.now()).iso)) snapshotDaily_(); } catch (e) { if (e && e.code === 'quota') QUOTA_NOTICE = e.userMessage; }
   var hasUS = holdings.some(function (h) { return h.market === 'US'; });
   return {
     holdings: holdings.map(function (h) { delete h.row; return h; }),
@@ -1608,4 +1615,186 @@ function recorderStatus_() {
   if (!exists) return { name: '盤中紀錄排程', ok: false, detail: '尚未建立：請在 Apps Script 執行 setup', ms: 0 };
   var last = cacheGet_('rec:last');
   return { name: '盤中紀錄排程', ok: true, detail: '每分鐘' + (last ? '，最近一次 ' + new Date(Number(last) + 8 * 3600e3).toISOString().slice(5, 16).replace('T', ' ') : '（台股盤中才會執行）'), ms: 0 };
+}
+
+/* ===================== 每日市值紀錄 ===================== */
+
+var SHEET_DAILY = '每日市值';
+var SHEET_DAILY_DET = '市值明細';
+var DAILY_HEADERS = ['日期', '紀錄時間', '總市值', '台股市值', '美股市值(台幣)', '美股市值(美元)', '美元匯率', '總成本', '未實現損益', '報酬率', '市值變化', '市值變化%', '損益變化', '持股檔數', '備註'];
+var DET_HEADERS = ['日期', '代號', '名稱', '市場', '股數', '價格', '幣別', '市值(原幣)', '市值(台幣)', '成本(台幣)', '未實現損益(台幣)', '報價時間', '備註'];
+var SNAP_MIN = 13 * 60 + 31;     // 13:31 起記錄（13:30 收盤撮合結果公布後）
+var SNAP_WAIT_UNTIL = 13 * 60 + 45;   // 收盤價最晚等到 13:45，之後就用拿得到的價格
+
+function ensureDailySheets_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var d = ss.getSheetByName(SHEET_DAILY);
+  if (!d) {
+    d = ss.insertSheet(SHEET_DAILY);
+    ['A:A', 'B:B'].forEach(function (c) { d.getRange(c).setNumberFormat('@'); });   // 日期、時間存文字，避免時區換算
+    d.getRange(1, 1, 1, DAILY_HEADERS.length).setValues([DAILY_HEADERS]).setFontWeight('bold');
+    d.setFrozenRows(1);
+    [['C:F', '#,##0'], ['H:I', '#,##0']].forEach(function (x) { rangeCols_(d, x[0]).forEach(function (c) { d.getRange(c).setNumberFormat(x[1]); }); });
+    d.getRange('F:F').setNumberFormat('#,##0.00');
+    d.getRange('G:G').setNumberFormat('0.000');
+    d.getRange('J:J').setNumberFormat('0.00%');
+    // 與前一日的變化：增加紅色 ▲、減少綠色 ▼，顯示確切金額
+    d.getRange('K:K').setNumberFormat('[Red]"▲"#,##0;[Green]"▼"#,##0;0');
+    d.getRange('M:M').setNumberFormat('[Red]"▲"#,##0;[Green]"▼"#,##0;0');
+    d.getRange('L:L').setNumberFormat('[Red]"▲"0.00%;[Green]"▼"0.00%;0.00%');
+  }
+  var t = ss.getSheetByName(SHEET_DAILY_DET);
+  if (!t) {
+    t = ss.insertSheet(SHEET_DAILY_DET);
+    ['A:A', 'B:B', 'L:L'].forEach(function (c) { t.getRange(c).setNumberFormat('@'); });   // 代號要文字，0050 才不會掉 0
+    t.getRange(1, 1, 1, DET_HEADERS.length).setValues([DET_HEADERS]).setFontWeight('bold');
+    t.setFrozenRows(1);
+  }
+  return { daily: d, det: t };
+}
+function rangeCols_(sh, spec) {   // 'C:F' → ['C:C','D:D','E:E','F:F']
+  var a = spec.charCodeAt(0), b = spec.charCodeAt(2), out = [];
+  for (var c = a; c <= b; c++) out.push(String.fromCharCode(c) + ':' + String.fromCharCode(c));
+  return out;
+}
+
+/** 損益計算設定（App 的設定會同步過來，讓紀錄的損益和畫面上一致） */
+function pnlSettings_() {
+  var p = PropertiesService.getScriptProperties();
+  var fees = p.getProperty('PNL_FEES');
+  var disc = Number(p.getProperty('PNL_DISCOUNT'));
+  return { fees: fees == null ? true : fees === '1', discount: disc > 0 && disc <= 10 ? disc : 10 };
+}
+function saveSettings_(st) {
+  var p = PropertiesService.getScriptProperties();
+  var disc = Number(st.discount);
+  p.setProperty('PNL_FEES', st.fees === false ? '0' : '1');
+  p.setProperty('PNL_DISCOUNT', String(disc > 0 && disc <= 10 ? disc : 10));
+  return pnlSettings_();
+}
+/** 與 App 相同：台股預估賣出手續費＋證交稅 */
+function sellCost_(code, shares, mv, st) {
+  if (!st.fees || !(mv > 0)) return 0;
+  var disc = Math.min(1, Math.max(0.01, st.discount / 10));
+  var minFee = Math.floor(shares) === shares && shares % 1000 === 0 ? 20 : 1;
+  var fee = Math.max(Math.floor(mv * 0.001425 * disc), minFee);
+  var rate = /^00\d+B$/.test(code) ? 0 : /^00/.test(code) ? 0.001 : 0.003;
+  return fee + Math.floor(mv * rate);
+}
+
+function hm_(ms) { var d = new Date(ms + 8 * 3600e3); return ('0' + d.getUTCHours()).slice(-2) + ':' + ('0' + d.getUTCMinutes()).slice(-2); }
+function lastDaily_(sh) {
+  var last = sh.getLastRow();
+  if (last < 2) return null;
+  var r = sh.getRange(last, 1, 1, DAILY_HEADERS.length).getValues()[0];
+  return { date: String(r[0]), total: Number(r[2]) || 0, pnl: Number(r[8]) || 0, fx: Number(r[6]) || null };
+}
+function detailsOf_(sh, date, maxRows) {
+  var last = sh.getLastRow();
+  if (last < 2 || !date) return {};
+  var n = Math.min(last - 1, maxRows);
+  var rows = sh.getRange(last - n + 1, 1, n, DET_HEADERS.length).getValues();
+  var out = {};
+  rows.forEach(function (r) {
+    if (String(r[0]) !== date) return;
+    var code = typeof r[1] === 'number' ? String(r[1]).padStart(4, '0') : String(r[1]);
+    out[code] = { shares: Number(r[4]), price: Number(r[5]) };
+  });
+  return out;
+}
+
+/**
+ * 記錄今天 13:30 的持倉市值。每分鐘排程呼叫；一天只記一次（已記過立刻結束）。
+ * 13:31 起：台股今天有交易時，等到拿到 13:30 收盤價（最晚 13:45）；台股休市日直接用最後收盤價。
+ * 美股用前一晚收盤價（台北 13:30 美股已收盤），匯率用記錄當下的美元匯率。
+ */
+function snapshotDaily_() {
+  var now = Date.now(), tp = tpeParts_(now), day = tp.iso;
+  if (tp.mins < SNAP_MIN) return { skipped: 'before' };
+  if (cacheGet_('snap:' + day)) return { skipped: 'done' };
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(10000)) return { skipped: 'busy' };
+  try {
+    var sh = ensureDailySheets_();
+    var prev = lastDaily_(sh.daily);
+    if (prev && prev.date === day) { cachePut_('snap:' + day, 1, 21600); return { skipped: 'done' }; }
+    var holdings = readHoldings_();
+    if (!holdings.length) return { skipped: 'empty' };
+    var quotes = getQuotes_(holdings, 60);
+    var notes = [];
+    var tw = holdings.filter(function (h) { return h.market === 'TW'; });
+    var twToday = tw.some(function (h) { var q = quotes[h.code]; return q && !q.error && q.time && tpeParts_(q.time).iso === day; });
+    if (twToday && tp.mins < SNAP_WAIT_UNTIL) {
+      // 證交所整批報價的時間到了 13:30 才代表收盤價已公布（冷門股最後成交可能更早，所以看整批最新的時間）
+      var close = twSession_(day).end;
+      var latest = Math.max.apply(null, tw.map(function (h) { var q = quotes[h.code]; return q && !q.error && q.source === 'TWSE' && q.time ? q.time : 0; }));
+      var anyTwse = latest > 0;
+      if (anyTwse && latest < close) return { skipped: 'waiting' };   // 收盤價還沒出來，下一分鐘再試
+    }
+    if (tw.length && !twToday) notes.push('台股休市');
+    if (prev && prev.date !== ymd_(addDays_(new Date(Date.parse(day + 'T00:00:00Z')), -1))) notes.push('與 ' + prev.date + ' 比較');
+    var hasUS = holdings.some(function (h) { return h.market === 'US'; });
+    var fx = null;
+    if (hasUS) {
+      var f = getFx_();
+      fx = f && f.rate ? f.rate : (prev && prev.fx);
+      if (!(f && f.rate)) notes.push(fx ? '匯率取不到，沿用前一日' : '匯率取不到，美股未計入');
+    }
+    var st = pnlSettings_();
+    var prevDet = prev ? detailsOf_(sh.det, prev.date, holdings.length + 200) : {};
+    var tot = { mv: 0, tw: 0, usT: 0, usUsd: 0, cost: 0, pnl: 0, n: 0 }, det = [], carried = [], missing = [];
+    holdings.forEach(function (h) {
+      var q = quotes[h.code], price = null, qtime = '', dnote = '';
+      if (q && !q.error && q.price) { price = q.price; qtime = q.time ? (tpeParts_(q.time).iso + ' ' + hm_(q.time)) : ''; if (q.delayed) dnote = 'Yahoo 延遲報價'; }
+      else if (prevDet[h.code] && prevDet[h.code].price) { price = prevDet[h.code].price; dnote = '缺報價，沿用前一日價格'; carried.push(h.code); }
+      if (price == null) { missing.push(h.code); return; }
+      var rate = h.market === 'US' ? fx : 1;
+      if (!rate) { missing.push(h.code); return; }
+      var mvL = price * h.shares, mvT = mvL * rate;
+      var costL = h.cost != null ? h.cost * h.shares : null;
+      var fee = h.market === 'TW' ? sellCost_(h.code, h.shares, mvL, st) : 0;
+      var pnlT = costL != null ? (mvL - fee - costL) * rate : null;
+      tot.mv += mvT; tot.n++;
+      if (h.market === 'TW') tot.tw += mvT; else { tot.usT += mvT; tot.usUsd += mvL; }
+      if (costL != null) { tot.cost += costL * rate; tot.pnl += pnlT; }
+      det.push([day, h.code, h.name || (q && q.name ? (h.market === 'US' ? enCore_(q.name) : q.name) : ''), h.market === 'TW' ? '台股' : '美股', h.shares, price, h.market === 'TW' ? 'TWD' : 'USD',
+        Math.round(mvL * 100) / 100, Math.round(mvT), costL != null ? Math.round(costL * rate) : '', pnlT != null ? Math.round(pnlT) : '', qtime, dnote]);
+    });
+    if (!det.length) return { skipped: 'noquotes' };
+    if (carried.length) notes.push(carried.length + ' 檔缺報價，沿用前一日價格');
+    if (missing.length) notes.push(missing.length + ' 檔沒有報價，未計入');
+    // 持股變動（新增、刪除、股數改變）：市值變化會包含買賣，看「損益變化」才是漲跌
+    if (prev && Object.keys(prevDet).length) {
+      var nowSet = {}; holdings.forEach(function (h) { nowSet[h.code] = h.shares; });
+      var changed = Object.keys(prevDet).some(function (c) { return nowSet[c] !== prevDet[c].shares; }) || Object.keys(nowSet).some(function (c) { return !prevDet[c]; });
+      if (changed) notes.push('持股有變動');
+    }
+    var total = Math.round(tot.mv), pnl = Math.round(tot.pnl), cost = Math.round(tot.cost);
+    var row = [day, hm_(now), total, Math.round(tot.tw), Math.round(tot.usT), Math.round(tot.usUsd * 100) / 100, fx ? Math.round(fx * 1000) / 1000 : '',
+      cost, pnl, cost ? Math.round(pnl / cost * 1e6) / 1e6 : '',
+      prev ? total - prev.total : '', prev && prev.total ? Math.round((total - prev.total) / prev.total * 1e6) / 1e6 : '', prev ? pnl - prev.pnl : '',
+      tot.n, notes.join('；')];
+    sh.daily.getRange(sh.daily.getLastRow() + 1, 1, 1, row.length).setValues([row]);
+    sh.det.getRange(sh.det.getLastRow() + 1, 1, det.length, DET_HEADERS.length).setValues(det);
+    cachePut_('snap:' + day, 1, 21600);
+    return { recorded: true, row: row };
+  } finally { lock.releaseLock(); }
+}
+
+function history_(withDetail) {
+  var sh = ensureDailySheets_();
+  var last = sh.daily.getLastRow();
+  var rows = last < 2 ? [] : sh.daily.getRange(2, 1, last - 1, DAILY_HEADERS.length).getValues().map(function (r) {
+    var num = function (v) { return v === '' || v == null ? null : Number(v); };
+    return { date: String(r[0]), time: String(r[1]), total: num(r[2]), tw: num(r[3]), usT: num(r[4]), usUsd: num(r[5]), fx: num(r[6]),
+      cost: num(r[7]), pnl: num(r[8]), ret: num(r[9]), dMv: num(r[10]), dPct: num(r[11]), dPnl: num(r[12]), count: num(r[13]), note: String(r[14] || '') };
+  }).filter(function (r) { return /^\d{4}-\d{2}-\d{2}$/.test(r.date) && r.total != null; });
+  var out = { rows: rows, settings: pnlSettings_(), snapTime: '13:30' };
+  if (withDetail) {
+    var dl = sh.det.getLastRow();
+    out.details = dl < 2 ? [] : sh.det.getRange(2, 1, dl - 1, DET_HEADERS.length).getValues().map(function (r) {
+      return [String(r[0]), typeof r[1] === 'number' ? String(r[1]).padStart(4, '0') : String(r[1])].concat(r.slice(2));
+    });
+  }
+  return out;
 }
