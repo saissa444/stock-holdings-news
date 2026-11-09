@@ -141,8 +141,8 @@ main{max-width:1180px;margin:0 auto;padding:12px 12px calc(var(--sab) + 90px)}
 .hist-body{padding:12px 14px 4px}
 .seg.metric{margin:0 0 10px}
 /* 資產負債 */
-:root{--c-stock:#2B4C8C;--c-unl:#6A43B5;--c-ins:#0F7C8C;--c-dep:#9A6200;--c-loan:#6B7486}
-@media (prefers-color-scheme:dark){:root{--c-stock:#8FB0F0;--c-unl:#B9A0F0;--c-ins:#5CC8D6;--c-dep:#E5B45A;--c-loan:#93A0B8}}
+:root{--c-stock:#2B4C8C;--c-unl:#6A43B5;--c-ins:#0F7C8C;--c-dep:#9A6200;--c-cry:#B5179E;--c-loan:#6B7486}
+@media (prefers-color-scheme:dark){:root{--c-stock:#8FB0F0;--c-unl:#B9A0F0;--c-ins:#5CC8D6;--c-dep:#E5B45A;--c-cry:#F07CD8;--c-loan:#93A0B8}}
 .nw{padding:14px 14px 10px}
 .nw-label{font-size:13px;color:var(--muted)}
 .nw-total{font-family:var(--num);font-size:32px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1.15}
@@ -354,7 +354,7 @@ dialog::backdrop{background:rgba(10,16,30,.45)}
       <div class="panel-head"><h2>資產負債</h2><span class="hsub" id="assetsUpdated"></span></div>
       <div class="nw" id="nwBox"></div>
       <div id="assetList"></div>
-      <div class="evnote">未上市股票、保險、存款、貸款的金額都是手動輸入，不會自動更新；外幣以當下匯率換算台幣。超過 90 天沒更新的會標示提醒。也可以直接在試算表的「其他資產」工作表編輯。</div>
+      <div class="evnote">未上市股票、保險、存款、貸款的金額都是手動輸入，不會自動更新；外幣以當下匯率換算台幣。超過 90 天沒更新的會標示提醒。加密貨幣只需輸入數量，價格用 Yahoo 的美元報價（24 小時交易）乘上當下美元匯率換算台幣，停留在這頁時約每分鐘更新；「今日」漲跌以 Yahoo 的換日（台北早上 8 點）起算。也可以直接在試算表的「其他資產」工作表編輯。</div>
     </section>
     <section class="panel hidden" id="panel-hist" role="tabpanel" aria-labelledby="tabHist">
       <div class="panel-head"><h2>每日市值</h2><button type="button" class="btn small" id="btnExport">匯出 Excel／Numbers</button></div>
@@ -400,13 +400,19 @@ dialog::backdrop{background:rgba(10,16,30,.45)}
           <label><input type="radio" name="aType" value="未上市"><span>未上市股票</span></label>
           <label><input type="radio" name="aType" value="保險"><span>保險</span></label>
           <label><input type="radio" name="aType" value="存款"><span>存款</span></label>
+          <label><input type="radio" name="aType" value="加密貨幣"><span>加密貨幣</span></label>
           <label><input type="radio" name="aType" value="貸款"><span>貸款</span></label>
         </div>
+      </div>
+      <div class="f2" id="aCryFields">
+        <div class="field"><label for="aSym">代號</label><input id="aSym" list="coinList" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="14" placeholder="例如 BTC"><div class="err hidden" id="eASym"></div></div>
+        <div class="field"><label for="aQty">數量</label><input id="aQty" inputmode="decimal" autocomplete="off" placeholder="例如 0.125"><div class="err hidden" id="eAQty"></div></div>
+        <datalist id="coinList"><option value="BTC">比特幣</option><option value="ETH">以太幣</option><option value="SOL">Solana</option><option value="USDT">泰達幣</option><option value="USDC">USDC</option><option value="BNB">幣安幣</option><option value="XRP">瑞波幣</option><option value="DOGE">狗狗幣</option><option value="ADA">Cardano</option><option value="TRX">波場幣</option><option value="AVAX">Avalanche</option><option value="DOT">Polkadot</option><option value="LINK">Chainlink</option><option value="LTC">萊特幣</option><option value="BCH">比特幣現金</option><option value="TON">Toncoin</option></datalist>
       </div>
       <div class="field"><label for="aName">名稱</label><input id="aName" autocomplete="off" maxlength="40"><div class="err hidden" id="eAName"></div></div>
       <div class="f2">
         <div class="field"><label for="aInst" id="aInstLabel">機構</label><input id="aInst" autocomplete="off" maxlength="40"></div>
-        <div class="field"><label for="aCur">幣別</label>
+        <div class="field" id="aCurField"><label for="aCur">幣別</label>
           <select id="aCur"><option value="TWD">新台幣</option><option value="USD">美元</option><option value="JPY">日圓</option><option value="CNY">人民幣</option><option value="AUD">澳幣</option><option value="EUR">歐元</option><option value="HKD">港幣</option><option value="GBP">英鎊</option></select>
         </div>
       </div>
@@ -420,7 +426,7 @@ dialog::backdrop{background:rgba(10,16,30,.45)}
         <div class="field" id="aRateField"><label for="aRate">年利率（%）</label><input id="aRate" inputmode="decimal" autocomplete="off"><div class="err hidden" id="eARate"></div></div>
         <div class="field" id="aMonthlyField"><label for="aMonthly">每月還款</label><input id="aMonthly" inputmode="decimal" autocomplete="off"></div>
       </div>
-      <div class="field"><label for="aUpdated">金額更新日期</label><input id="aUpdated" type="date"><div class="hint">改了金額會自動帶入今天；照舊通知書補登時可以改成通知書上的日期。</div></div>
+      <div class="field" id="aUpdatedField"><label for="aUpdated">金額更新日期</label><input id="aUpdated" type="date"><div class="hint">改了金額會自動帶入今天；照舊通知書補登時可以改成通知書上的日期。</div></div>
       <div class="field"><label for="aNote">備註</label><input id="aNote" autocomplete="off" maxlength="200"></div>
       <div class="err hidden" id="eAForm"></div>
     </div>
@@ -1200,7 +1206,7 @@ const XS = { gen: 0, head: 1, date: 2, int: 3, dec2: 4, fx: 5, pct: 6, chgUp: 7,
 function stylesXml(upColor, dnColor) {
   return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
     + '<numFmts count="5"><numFmt numFmtId="164" formatCode="yyyy/mm/dd"/><numFmt numFmtId="165" formatCode="0.000"/>'
-    + '<numFmt numFmtId="166" formatCode="&quot;▲&quot;#,##0;&quot;▼&quot;#,##0;0"/><numFmt numFmtId="167" formatCode="&quot;▲&quot;0.00%;&quot;▼&quot;0.00%;0.00%"/><numFmt numFmtId="168" formatCode="#,##0.####"/></numFmts>'
+    + '<numFmt numFmtId="166" formatCode="&quot;▲&quot;#,##0;&quot;▼&quot;#,##0;0"/><numFmt numFmtId="167" formatCode="&quot;▲&quot;0.00%;&quot;▼&quot;0.00%;0.00%"/><numFmt numFmtId="168" formatCode="#,##0.########"/></numFmts>'
     + '<fonts count="4"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font>'
     + `<font><sz val="11"/><color rgb="FF${upColor}"/><name val="Calibri"/></font><font><sz val="11"/><color rgb="FF${dnColor}"/><name val="Calibri"/></font></fonts>`
     + '<fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFF2F4F7"/><bgColor indexed="64"/></patternFill></fill></fills>'
@@ -1247,11 +1253,11 @@ function buildXlsx(rows, details, assetList, assetFx) {
     return x;
   };
   const H1 = ['日期', '紀錄時間', '總市值', '台股市值', '美股市值(台幣)', '美股市值(美元)', '美元匯率', '總成本', '未實現損益', '報酬率', '與前日市值變化', '與前日變化%', '與前日損益變化', '持股檔數', '備註',
-    '未上市股票', '保險', '存款', '貸款', '淨資產', '與前日淨資產變化'];
+    '未上市股票', '保險', '存款', '加密貨幣', '貸款', '淨資產', '與前日淨資產變化'];
   const d1 = rows.map(r => [[excelDate(r.date), XS.date], [r.time], [r.total, XS.int], [r.tw, XS.int], [r.usT, XS.int], [r.usUsd, XS.dec2], [r.fx, XS.fx],
     [r.cost, XS.int], [r.pnl, sign(r.pnl, XS.intUp, XS.intDn, XS.int)], [r.ret, sign(r.ret, XS.retUp, XS.retDn, XS.pct)],
     [r.dMv, sign(r.dMv, XS.chgUp, XS.chgDn, XS.chgFlat)], [r.dPct, sign(r.dPct, XS.pctUp, XS.pctDn, XS.pctFlat)], [r.dPnl, sign(r.dPnl, XS.chgUp, XS.chgDn, XS.chgFlat)],
-    [r.count, XS.int], [r.note], [r.unl, XS.int], [r.ins, XS.int], [r.dep, XS.int], [r.loan != null ? -r.loan : null, XS.int], [r.net, XS.int], [r.dNet, sign(r.dNet, XS.chgUp, XS.chgDn, XS.chgFlat)]]);
+    [r.count, XS.int], [r.note], [r.unl, XS.int], [r.ins, XS.int], [r.dep, XS.int], [r.cry, XS.int], [r.loan != null ? -r.loan : null, XS.int], [r.net, XS.int], [r.dNet, sign(r.dNet, XS.chgUp, XS.chgDn, XS.chgFlat)]]);
   const H2 = ['日期', '代號', '名稱', '市場', '股數', '價格', '幣別', '市值(原幣)', '市值(台幣)', '成本(台幣)', '未實現損益(台幣)', '報價時間', '備註'];
   const num = (v) => v === '' || v == null ? null : Number(v);
   const d2 = (details || []).map(r => [[excelDate(String(r[0])), XS.date], [String(r[1])], [r[3] === '美股' ? shortName(r[2]) : r[2]], [r[3]], [num(r[4]), Number.isInteger(num(r[4])) ? XS.int : XS.frac], [num(r[5]), XS.dec2], [r[6]],
@@ -1282,12 +1288,12 @@ function buildXlsx(rows, details, assetList, assetFx) {
   };
   const charts = [];
   if (n) charts.push(chartXml('每日持股總市值（台幣，每日 13:30）', { col: 'C', title: '總市值', vals: rows.map(r => r.total), color: '2B4C8C' }, { col: 'H', title: '總成本', vals: rows.map(r => r.cost || null) }));
-  if (rows.some(r => r.net != null)) charts.push(chartXml('每日淨資產（台幣，每日 13:30）', { col: 'T', title: '淨資產', vals: rows.map(r => r.net), color: '0F7C8C' }));
+  if (rows.some(r => r.net != null)) charts.push(chartXml('每日淨資產（台幣，每日 13:30）', { col: 'U', title: '淨資產', vals: rows.map(r => r.net), color: '0F7C8C' }));
   const anchor = (i) => `<xdr:twoCellAnchor editAs="oneCell"><xdr:from><xdr:col>0</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>${2 + i * 23}</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from><xdr:to><xdr:col>10</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>${24 + i * 23}</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:to>`
     + `<xdr:graphicFrame macro=""><xdr:nvGraphicFramePr><xdr:cNvPr id="${2 + i}" name="趨勢圖${i + 1}"/><xdr:cNvGraphicFramePr/></xdr:nvGraphicFramePr><xdr:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/></xdr:xfrm>`
     + `<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/chart"><c:chart xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:id="rId${i + 1}"/></a:graphicData></a:graphic></xdr:graphicFrame><xdr:clientData/></xdr:twoCellAnchor>`;
   const drawing = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">' + charts.map((c, i) => anchor(i)).join('') + '</xdr:wsDr>';
-  const sheet1 = sheet(H1, d1, [12, 9, 13, 13, 14, 14, 9, 13, 13, 9, 15, 12, 15, 9, 30, 12, 12, 12, 12, 13, 16]);
+  const sheet1 = sheet(H1, d1, [12, 9, 13, 13, 14, 14, 9, 13, 13, 9, 15, 12, 15, 9, 30, 12, 12, 12, 12, 12, 13, 16]);
   const sheetChart = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
     + '<sheetPr><pageSetUpPr fitToPage="1"/></sheetPr><sheetViews><sheetView workbookViewId="0"/></sheetViews><sheetFormatPr defaultRowHeight="16"/><sheetData>'
     + `<row r="1"><c r="A1" t="s"><v>${si(charts.length ? '趨勢圖（資料來自「每日市值」工作表）' : '還沒有紀錄')}</v></c></row></sheetData>`
@@ -1295,10 +1301,18 @@ function buildXlsx(rows, details, assetList, assetFx) {
     + (charts.length ? '<drawing r:id="rId1"/>' : '') + '</worksheet>';
   const sheet2 = sheet(H2, d2, [12, 8, 16, 7, 10, 11, 7, 14, 13, 13, 15, 17, 22]);
   // 其他資產（匯出當下的清單）
-  const AH = ['類別', '名稱', '機構', '幣別', '金額(原幣)', '股數', '每股價格', '成本(原幣)', '匯率', '台幣價值', '帳面損益(台幣)', '年利率(%)', '每月還款', '更新日期', '備註'];
-  const order = { '未上市': 1, '保險': 2, '存款': 3, '貸款': 4 };
+  const AH = ['類別', '名稱', '機構', '幣別', '金額(原幣)', '股數／數量', '每股價格', '成本(原幣)', '匯率', '台幣價值', '帳面損益(台幣)', '年利率(%)', '每月還款', '更新日期', '備註'];
+  const order = { '未上市': 1, '保險': 2, '存款': 3, '加密貨幣': 4, '貸款': 5 };
   const al = (assetList || []).slice().sort((a, b) => (order[a.type] || 9) - (order[b.type] || 9));
   const ad = al.map(a => {
+    if (a.type === '加密貨幣') {
+      // 原幣是美元：金額＝數量×美元價；成本是台幣，所以損益直接用台幣算
+      const usd = a.priceUsd != null ? a.shares * a.priceUsd : null, tw = a.price != null ? a.shares * a.price : null;
+      const gain = tw != null && a.cost > 0 ? Math.round(tw - a.cost) : null;
+      return [['加密貨幣'], [a.name + (a.symbol && a.name !== a.symbol ? '（' + a.symbol + '）' : '')], [a.inst || null], ['USD'], [usd, XS.dec2], [a.shares, Number.isInteger(a.shares) ? XS.int : XS.frac], [a.priceUsd, XS.dec2],
+        [a.cost != null ? '台幣 ' + NF0.format(a.cost) : null], [a.price != null && a.priceUsd ? a.price / a.priceUsd : null, XS.fx], [tw != null ? Math.round(tw) : null, XS.int], [gain, sign(gain, XS.intUp, XS.intDn, XS.int)],
+        [null], [null], [a.qtime ? excelDate(new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Taipei' }).format(new Date(a.qtime))) : null, XS.date], [a.note || null]];
+    }
     const v = a.type === '未上市' && a.shares != null && a.price != null ? a.shares * a.price : (a.amount || 0);
     const rate = a.cur === 'TWD' ? 1 : (assetFx || {})[a.cur] || null;
     const sg = a.type === '貸款' ? -1 : 1;
@@ -1322,7 +1336,7 @@ function buildXlsx(rows, details, assetList, assetFx) {
     ['docProps/app.xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"><Application>持股新聞</Application></Properties>'],
     ['xl/workbook.xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><bookViews><workbookView/></bookViews><sheets>'
       + ws.map((w, i) => `<sheet name="${w[0]}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join('') + '</sheets>'
-      + `<definedNames><definedName name="_xlnm._FilterDatabase" localSheetId="0" hidden="1">${S}!$A$1:$U$${Math.max(2, n + 1)}</definedName><definedName name="_xlnm._FilterDatabase" localSheetId="2" hidden="1">'市值明細'!$A$1:$M$${Math.max(2, d2.length + 1)}</definedName><definedName name="_xlnm._FilterDatabase" localSheetId="3" hidden="1">'其他資產'!$A$1:$O$${Math.max(2, ad.length + 1)}</definedName></definedNames></workbook>`],
+      + `<definedNames><definedName name="_xlnm._FilterDatabase" localSheetId="0" hidden="1">${S}!$A$1:$V$${Math.max(2, n + 1)}</definedName><definedName name="_xlnm._FilterDatabase" localSheetId="2" hidden="1">'市值明細'!$A$1:$M$${Math.max(2, d2.length + 1)}</definedName><definedName name="_xlnm._FilterDatabase" localSheetId="3" hidden="1">'其他資產'!$A$1:$O$${Math.max(2, ad.length + 1)}</definedName></definedNames></workbook>`],
     ['xl/_rels/workbook.xml.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
       + ws.map((w, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join('')
       + `<Relationship Id="rId${ws.length + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/><Relationship Id="rId${ws.length + 2}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings" Target="sharedStrings.xml"/></Relationships>`],
@@ -1369,13 +1383,15 @@ const A_TYPES = [
   { k: '未上市', label: '未上市股票', color: 'var(--c-unl)', inst: '發行公司／券商', amount: '', cost: '投入成本', costHint: '買進的總金額（原幣），用來算帳面損益' },
   { k: '保險', label: '保險', color: 'var(--c-ins)', inst: '保險公司', amount: '保單價值（解約金）', amountHint: '保險公司 App 或年度通知書上的保單價值準備金、解約金或帳戶價值', cost: '累計已繳保費', costHint: '選填，用來算帳面損益' },
   { k: '存款', label: '存款', color: 'var(--c-dep)', inst: '銀行', amount: '存款餘額', amountHint: '活存、定存、外幣帳戶都可以，各筆分開記比較好更新' },
+  { k: '加密貨幣', label: '加密貨幣', color: 'var(--c-cry)', inst: '交易所／錢包', cost: '投入成本（台幣）', costHint: '選填，買進總共花的台幣，用來算損益' },
   { k: '貸款', label: '貸款', color: 'var(--c-loan)', inst: '銀行', amount: '剩餘本金', amountHint: '還沒還的本金（填正數，會從淨資產扣掉）' },
 ];
 const CUR_NAME = { TWD: '新台幣', USD: '美元', JPY: '日圓', CNY: '人民幣', AUD: '澳幣', EUR: '歐元', HKD: '港幣', GBP: '英鎊' };
 const tpeToday = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Taipei', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
 async function refreshAssets(force) {
   if (!cfg.url || loadingAssets) return;
-  if (!force && assets && Date.now() - lastAssetsAt < 10 * 60e3) return;
+  // 有加密貨幣時 1 分鐘內不重抓（價格會變）；只有手動輸入的資產時 10 分鐘
+  if (!force && assets && Date.now() - lastAssetsAt < (hasCrypto() ? 55e3 : 10 * 60e3)) return;
   loadingAssets = true;
   try {
     const r = await call('GET', { action: 'assets' });
@@ -1385,19 +1401,26 @@ async function refreshAssets(force) {
     assetsError = /未知的動作/.test(e.message) ? '後端還是舊版：請把新的 Code.gs 貼到 Apps Script，執行 setup，並部署新版本' : '資產讀取失敗：' + e.message;
   } finally { loadingAssets = false; renderAssets(); }
 }
-function assetVal(a) { return a.type === '未上市' && a.shares != null && a.price != null ? a.shares * a.price : (a.amount || 0); }
+const hasCrypto = () => !!(assets && assets.assets.some(a => a.type === '加密貨幣'));
+const fmtQty = (n) => n == null ? '—' : Number.isInteger(n) ? NF0.format(n) : nf(8).format(n).replace(/0+$/, '').replace(/\.$/, '');
+const fmtUsd = (n) => n == null ? '—' : 'US$' + (Math.abs(n) >= 1 ? NF2.format(n) : nf(6).format(n).replace(/0+$/, '').replace(/\.$/, ''));
+function assetVal(a) {
+  if (a.type === '加密貨幣') return a.shares != null && a.price != null ? a.shares * a.price : null;   // price 已是台幣
+  return a.type === '未上市' && a.shares != null && a.price != null ? a.shares * a.price : (a.amount || 0);
+}
 /** 每筆資產換成台幣；匯率取不到的回傳 null */
 function assetTwd(a) {
+  if (a.type === '加密貨幣') return assetVal(a);
   const fx = assets && assets.fx || {};
   const r = a.cur === 'TWD' ? 1 : fx[a.cur] || (a.cur === 'USD' && ((data && data.fx && data.fx.rate) || (lastFx && lastFx.rate))) || null;
   return r ? assetVal(a) * r : null;
 }
 function netWorth() {
   const c = compute();
-  const t = { stock: c ? c.sum.mv : 0, stockN: data ? data.holdings.length : 0, unl: 0, ins: 0, dep: 0, loan: 0, missing: 0 };
-  const key = { '未上市': 'unl', '保險': 'ins', '存款': 'dep', '貸款': 'loan' };
-  (assets ? assets.assets : []).forEach(a => { const v = assetTwd(a); if (v == null) t.missing++; else t[key[a.type]] += v; });
-  t.assets = t.stock + t.unl + t.ins + t.dep;
+  const t = { stock: c ? c.sum.mv : 0, stockN: data ? data.holdings.length : 0, unl: 0, ins: 0, dep: 0, cry: 0, loan: 0, missing: 0, cryMissing: 0 };
+  const key = { '未上市': 'unl', '保險': 'ins', '存款': 'dep', '加密貨幣': 'cry', '貸款': 'loan' };
+  (assets ? assets.assets : []).forEach(a => { const v = assetTwd(a); if (v == null) { if (a.type === '加密貨幣') t.cryMissing++; else t.missing++; } else t[key[a.type]] += v; });
+  t.assets = t.stock + t.unl + t.ins + t.dep + t.cry;
   t.net = t.assets - t.loan;
   return t;
 }
@@ -1405,7 +1428,7 @@ function renderAssets() {
   const box = $('#nwBox'), list = $('#assetList');
   if (!box) return;
   box.replaceChildren(); list.replaceChildren();
-  $('#assetsUpdated').textContent = loadingAssets ? '更新中…' : '';
+  $('#assetsUpdated').textContent = loadingAssets ? '更新中…' : assets && hasCrypto() && assets.fetchedAt ? '加密貨幣 ' + fmtTime(assets.fetchedAt) + ' 更新' : '';
   if (!cfg.url) { box.append(el('div', { class: 'empty' }, el('p', null, '設定連線後就能記錄未上市股票、保險、存款與貸款'))); return; }
   if (!assets) { box.append(assetsError ? el('div', { class: 'notice err' }, assetsError) : el('div', { class: 'empty' }, el('p', null, loadingAssets ? '載入中…' : '尚未讀取'))); return; }
   const t = netWorth();
@@ -1413,7 +1436,7 @@ function renderAssets() {
     el('div', { class: 'nw-total' }, el('small', null, 'NT$'), fmtSigned0(t.net)),
     el('div', { class: 'nw-sub' }, el('span', null, '總資產 ', el('b', null, NF0.format(Math.round(t.assets)))), el('span', null, '總負債 ', el('b', null, t.loan ? '−' + NF0.format(Math.round(t.loan)) : '0'))));
   // 資產組成（不含負債）
-  const parts = [['上市櫃股票', t.stock, 'var(--c-stock)'], ['未上市股票', t.unl, 'var(--c-unl)'], ['保險', t.ins, 'var(--c-ins)'], ['存款', t.dep, 'var(--c-dep)']].filter(p => p[1] > 0);
+  const parts = [['上市櫃股票', t.stock, 'var(--c-stock)'], ['未上市股票', t.unl, 'var(--c-unl)'], ['保險', t.ins, 'var(--c-ins)'], ['存款', t.dep, 'var(--c-dep)'], ['加密貨幣', t.cry, 'var(--c-cry)']].filter(p => p[1] > 0);
   if (t.assets > 0) {
     const bar = el('div', { class: 'nw-bar', role: 'img', 'aria-label': '資產組成：' + parts.map(p => p[0] + ' ' + (p[1] / t.assets * 100).toFixed(0) + '%').join('、') });
     parts.forEach(p => { const sp = el('span', { title: p[0] + ' ' + (p[1] / t.assets * 100).toFixed(1) + '%' }); sp.style.flex = String(p[1] / t.assets); sp.style.background = p[2]; bar.append(sp); });
@@ -1425,6 +1448,7 @@ function renderAssets() {
   }
   if (assetsError) box.append(el('div', { class: 'notice err', style: 'margin:10px 0 0' }, assetsError + '（目前顯示上次的資料）'));
   if (t.missing) box.append(el('div', { class: 'notice warn', style: 'margin:10px 0 0' }, t.missing + ' 筆外幣資產的匯率暫時取不到，未計入淨資產。'));
+  if (t.cryMissing) box.append(el('div', { class: 'notice warn', style: 'margin:10px 0 0' }, t.cryMissing + ' 筆加密貨幣的報價暫時取不到，未計入淨資產。'));
   if (assets.notice) box.append(el('div', { class: 'notice warn', style: 'margin:10px 0 0' }, assets.notice));
   // 上市櫃股票（從持倉自動計算）
   list.append(el('div', { class: 'asec' },
@@ -1448,20 +1472,26 @@ function renderAssets() {
       if (a.type === '未上市') subParts.push(fmtShares(a.shares) + ' 股 × ' + fmtPrice(a.price));
       if ((a.type === '存款' || a.type === '貸款') && a.rate != null) subParts.push('年利率 ' + a.rate + '%');
       if (a.type === '貸款' && a.monthly) subParts.push('每月還 ' + NF0.format(a.monthly));
-      let gain = null;
+      if (a.type === '加密貨幣') subParts.push(fmtQty(a.shares) + ' ' + a.symbol + ' × ' + fmtUsd(a.priceUsd));
+      let gain = null, day = null;
+      if (a.type === '加密貨幣' && tw != null) {
+        if (a.cost > 0) { const g = tw - a.cost; gain = el('span', { class: cls(g) }, '損益 ' + (g > 0 ? '+' : g < 0 ? '−' : '') + NF0.format(Math.abs(Math.round(g))) + '（' + pct(g / a.cost) + '）'); }
+        if (a.prevUsd > 0) { const d = a.priceUsd / a.prevUsd - 1; day = el('span', { class: cls(d), title: 'Yahoo 以台北早上 8 點（UTC 0 點）換日' }, '今日 ' + pct(d)); }
+      }
       if ((a.type === '未上市' || a.type === '保險') && a.cost > 0) {
         const g = v - a.cost;
         gain = el('span', { class: cls(g) }, (a.type === '保險' ? '帳面 ' : '損益 ') + (g > 0 ? '+' : g < 0 ? '−' : '') + NF0.format(Math.abs(Math.round(g))) + '（' + pct(g / a.cost) + '）');
       }
       const age = a.updated ? Math.round((isoMs(today) - isoMs(a.updated)) / 864e5) : null;
-      const upd = a.updated ? el('span', { class: age > 90 ? 'stale' : '' }, age > 90 ? '已 ' + age + ' 天未更新' : (+a.updated.slice(5, 7)) + '/' + (+a.updated.slice(8)) + ' 更新') : null;
+      const qOld = a.type === '加密貨幣' && a.qtime && Date.now() - a.qtime > 30 * 60e3;
+      const upd = a.type === '加密貨幣' ? (qOld ? el('span', { class: 'stale' }, '報價 ' + fmtTime(a.qtime, true)) : null) : a.updated ? el('span', { class: age > 90 ? 'stale' : '' }, age > 90 ? '已 ' + age + ' 天未更新' : (+a.updated.slice(5, 7)) + '/' + (+a.updated.slice(8)) + ' 更新') : null;
       const sub = el('span', { class: 'as' });
-      [subParts.join('・'), gain, upd].filter(Boolean).forEach((x, i) => { if (i) sub.append('・'); sub.append(typeof x === 'string' ? el('span', null, x) : x); });
+      [subParts.join('・'), day, gain, upd].filter(Boolean).forEach((x, i) => { if (i) sub.append('・'); sub.append(typeof x === 'string' ? el('span', null, x) : x); });
       sec.append(el('button', { class: 'arow', type: 'button', onclick: () => openAsset(a), 'aria-label': '編輯 ' + a.name },
         el('span', { class: 'an' }, a.name, a.inst ? el('small', null, a.inst) : null),
-        el('span', { class: 'av' }, tw == null ? '匯率缺' : (neg ? '−' : '') + NF0.format(Math.round(tw))),
+        el('span', { class: 'av' }, tw == null ? (a.type === '加密貨幣' ? '報價缺' : '匯率缺') : (neg ? '−' : '') + NF0.format(Math.round(tw))),
         sub,
-        el('span', { class: 'ao' }, a.cur !== 'TWD' ? (CUR_NAME[a.cur] || a.cur) + ' ' + (neg ? '−' : '') + NF2.format(v).replace(/\.00$/, '') : '')));
+        el('span', { class: 'ao' }, a.type === '加密貨幣' ? (a.priceUsd != null ? fmtUsd(a.shares * a.priceUsd) : '') : a.cur !== 'TWD' ? (CUR_NAME[a.cur] || a.cur) + ' ' + (neg ? '−' : '') + NF2.format(v).replace(/\.00$/, '') : '')));
     });
     list.append(sec);
   });
@@ -1472,18 +1502,21 @@ let editingAsset = null, aDateTouched = false;
 function aType() { const r = document.querySelector('input[name="aType"]:checked'); return r ? r.value : '存款'; }
 function applyAssetType() {
   const T = A_TYPES.find(x => x.k === aType());
-  const unl = T.k === '未上市';
+  const unl = T.k === '未上市', cry = T.k === '加密貨幣';
   $('#aUnlFields').classList.toggle('hidden', !unl);
-  $('#aAmountField').classList.toggle('hidden', unl);
+  $('#aCryFields').classList.toggle('hidden', !cry);
+  $('#aAmountField').classList.toggle('hidden', unl || cry);
+  $('#aCurField').classList.toggle('hidden', cry);
+  $('#aUpdatedField').classList.toggle('hidden', cry);
   $('#aAmountLabel').textContent = T.amount || '金額';
   $('#aAmountHint').textContent = T.amountHint || '';
-  $('#aCostField').classList.toggle('hidden', !(T.k === '未上市' || T.k === '保險'));
+  $('#aCostField').classList.toggle('hidden', !(T.k === '未上市' || T.k === '保險' || cry));
   $('#aCostLabel').textContent = T.cost || '成本';
   $('#aCostHint').textContent = T.costHint || '';
   $('#aRateField').classList.toggle('hidden', !(T.k === '存款' || T.k === '貸款'));
   $('#aMonthlyField').classList.toggle('hidden', T.k !== '貸款');
   $('#aInstLabel').textContent = T.inst;
-  $('#aName').placeholder = { '未上市': '例如：某某科技', '保險': '例如：美元利變終身壽險', '存款': '例如：薪轉活存', '貸款': '例如：房貸' }[T.k];
+  $('#aName').placeholder = { '未上市': '例如：某某科技', '保險': '例如：美元利變終身壽險', '存款': '例如：薪轉活存', '貸款': '例如：房貸', '加密貨幣': '可留空，自動用代號的中文名稱' }[T.k];
 }
 function openAsset(a, presetType) {
   editingAsset = a ? a.id : null; aDateTouched = false;
@@ -1492,15 +1525,17 @@ function openAsset(a, presetType) {
   document.querySelectorAll('input[name="aType"]').forEach(r => { r.checked = r.value === type; r.disabled = !!a; });
   const v = (x) => x == null ? '' : String(x);
   $('#aName').value = a ? a.name : ''; $('#aInst').value = a ? a.inst : ''; $('#aCur').value = a ? a.cur : 'TWD';
-  $('#aShares').value = a ? v(a.shares) : ''; $('#aPrice').value = a ? v(a.price) : '';
+  const cry = a && a.type === '加密貨幣';
+  $('#aShares').value = a && !cry ? v(a.shares) : ''; $('#aPrice').value = a && !cry ? v(a.price) : '';
+  $('#aSym').value = cry ? a.symbol : ''; $('#aQty').value = cry ? v(a.shares) : '';
   $('#aAmount').value = a ? v(a.amount) : ''; $('#aCost').value = a ? v(a.cost) : '';
   $('#aRate').value = a ? v(a.rate) : ''; $('#aMonthly').value = a ? v(a.monthly) : '';
   $('#aUpdated').value = a && a.updated ? a.updated : tpeToday(); $('#aNote').value = a ? a.note : '';
   $('#btnADelete').classList.toggle('hidden', !a);
-  ['#eAName', '#eAShares', '#eAPrice', '#eAAmount', '#eACost', '#eARate', '#eAForm'].forEach(i => showErr(i, ''));
+  ['#eAName', '#eAShares', '#eAPrice', '#eAAmount', '#eACost', '#eARate', '#eASym', '#eAQty', '#eAForm'].forEach(i => showErr(i, ''));
   applyAssetType();
   openDlg($('#dlgAsset'));
-  if (!a) setTimeout(() => $('#aName').focus(), 50);
+  if (!a) setTimeout(() => $(type === '加密貨幣' ? '#aSym' : '#aName').focus(), 50);
 }
 document.querySelectorAll('input[name="aType"]').forEach(r => r.addEventListener('change', applyAssetType));
 $('#aUpdated').addEventListener('input', () => { aDateTouched = true; });
@@ -1514,24 +1549,34 @@ $('#formAsset').addEventListener('submit', async (ev) => {
     updated: $('#aUpdated').value || tpeToday(), note: $('#aNote').value.trim() };
   let bad = false;
   const chk = (cond, id, msg) => { showErr(id, cond ? '' : msg); if (!cond) bad = true; };
-  chk(!!a.name, '#eAName', '請填名稱');
-  if (type === '未上市') { chk(a.shares > 0, '#eAShares', '請填大於 0 的股數'); chk(a.price >= 0, '#eAPrice', '請填每股參考價'); }
+  if (type === '加密貨幣') {
+    a.symbol = $('#aSym').value.trim().toUpperCase().replace(/-USD$/, ''); a.shares = opt('#aQty'); a.cur = 'TWD';
+    chk(/^[A-Z0-9]{2,10}$/.test(a.symbol), '#eASym', '請填代號，例如 BTC');
+    chk(a.shares > 0, '#eAQty', '請填大於 0 的數量');
+    chk(a.cost == null || a.cost >= 0, '#eACost', '請填 0 以上的數字');
+  } else chk(!!a.name, '#eAName', '請填名稱');
+  if (type === '加密貨幣') { /* 上面已檢查 */ }
+  else if (type === '未上市') { chk(a.shares > 0, '#eAShares', '請填大於 0 的股數'); chk(a.price >= 0, '#eAPrice', '請填每股參考價'); }
   else chk(a.amount >= 0, '#eAAmount', '請填' + ((A_TYPES.find(x => x.k === type) || {}).amount || '金額'));
   if (type === '未上市' || type === '保險') chk(a.cost == null || a.cost >= 0, '#eACost', '請填 0 以上的數字');
   if (type === '存款' || type === '貸款') chk(a.rate == null || (a.rate >= 0 && a.rate <= 100), '#eARate', '請填 0～100');
   if (bad) return;
-  if (type !== '未上市') { a.shares = null; a.price = null; }
-  if (type === '未上市') a.amount = null;
-  if (!(type === '未上市' || type === '保險')) a.cost = null;
+  if (type !== '未上市' && type !== '加密貨幣') a.shares = null;
+  if (type !== '未上市') a.price = null;
+  if (type === '未上市' || type === '加密貨幣') a.amount = null;
+  if (!(type === '未上市' || type === '保險' || type === '加密貨幣')) a.cost = null;
   if (!(type === '存款' || type === '貸款')) a.rate = null;
   if (type !== '貸款') a.monthly = null;
   const b = $('#btnASave'); b.disabled = true; b.textContent = '儲存中…'; showErr('#eAForm', '');
   try {
     await call('POST', null, { action: 'assetUpsert', asset: a });
     closeDlg($('#dlgAsset'));
-    toast(editingAsset ? '已儲存變更' : '已新增 ' + a.name);
+    toast(editingAsset ? '已儲存變更' : '已新增 ' + (a.name || a.symbol));
     await refreshAssets(true);
-  } catch (e) { showErr('#eAForm', /未知的動作/.test(e.message) ? '後端還是舊版：請先更新 Code.gs 並部署新版本' : e.message); }
+  } catch (e) {
+    if (type === '加密貨幣' && /查不到/.test(e.message)) showErr('#eASym', e.message);
+    else showErr('#eAForm', /未知的動作|類別要是/.test(e.message) ? '後端還是舊版：請先更新 Code.gs 並部署新版本' : e.message);
+  }
   finally { b.disabled = false; b.textContent = '儲存'; }
 });
 $('#btnADelete').addEventListener('click', async () => {
@@ -1642,6 +1687,12 @@ setInterval(() => {
   const lv = data && data.usage ? data.usage.level : 0;
   const gap = lv === 2 ? 118e3 : lv === 1 ? 58e3 : 28e3;   // 盤中 30 秒；用量高時放慢
   if (document.visibilityState === 'visible' && cfg.url && marketOpen() && Date.now() - lastDataAt > gap) refreshData().then(() => refreshSpark(false));
+}, 15e3);
+// 加密貨幣 24 小時交易：停在「資產」頁時約每分鐘更新（後端 60 秒快取，多台裝置共用）
+setInterval(() => {
+  if (document.visibilityState !== 'visible' || !cfg.url || document.body.dataset.tab !== 'assets' || !hasCrypto()) return;
+  const lv = data && data.usage ? data.usage.level : 0;
+  if (Date.now() - lastAssetsAt > (lv ? 5 * 60e3 : 60e3)) refreshAssets(true);
 }, 15e3);
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState !== 'visible' || !cfg.url) return;

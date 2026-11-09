@@ -394,7 +394,7 @@ const pointCount = (page) => page.$eval('#chBox .ch-line', p => (p.getAttribute(
     await page.click('#tabAssets');
     await page.waitForSelector('#nwBox .nw-total');
     assert.strictEqual(num(await page.textContent('#nwBox .nw-total')), num(await page.textContent('#total')));
-    assert.strictEqual(await page.$$eval('#assetList .aempty', e => e.length), 4);
+    assert.strictEqual(await page.$$eval('#assetList .aempty', e => e.length), 5);
   });
   await t('新增四類資產；保險選美元、存款選日圓；淨資產＝股票＋未上市＋保險＋存款−貸款（獨立計算）', async () => {
     await addAsset('未上市', { aName: '某未上市科技', aShares: '2,000', aPrice: '45.5', aCost: '60000' });
@@ -451,6 +451,60 @@ const pointCount = (page) => page.$eval('#chBox .ch-line', p => (p.getAttribute(
     await page.waitForFunction(() => !/日圓外幣/.test(document.querySelector('#assetList').textContent));
     assert.strictEqual(b.env.sheets['其他資產'].rows.length, 5);
   });
+  await t('加密貨幣：只填代號與數量；Yahoo 美元價 × 匯率換算台幣，顯示今日漲跌與損益，計入淨資產', async () => {
+    const before = num(await page.textContent('#nwBox .nw-total'));
+    await page.click('#assetList .asec:has(h3:text-is("加密貨幣")) .add');
+    await page.waitForSelector('#dlgAsset[open]');
+    assert.ok(await page.isVisible('#aCryFields'), '代號、數量欄');
+    for (const id of ['#aCurField', '#aAmountField', '#aUpdatedField', '#aRateField', '#aUnlFields']) assert.ok(await page.isHidden(id), id + ' 應隱藏');
+    assert.strictEqual(await page.textContent('#aCostLabel'), '投入成本（台幣）');
+    await advance(page, 100);   // 對話框開啟後 50ms 才移游標（時鐘是暫停的）
+    assert.strictEqual(await page.evaluate(() => document.activeElement.id), 'aSym', '游標先在代號');
+    await page.click('#btnASave');
+    assert.match(await page.textContent('#eASym'), /代號/); assert.match(await page.textContent('#eAQty'), /數量/);
+    await page.fill('#aSym', 'nopecoin'); await page.fill('#aQty', '1');
+    await page.click('#btnASave');
+    await page.waitForFunction(() => /查不到 NOPECOIN/.test(document.querySelector('#eASym').textContent));
+    assert.ok(await page.$eval('#dlgAsset', d => d.open), '查不到時對話框不關');
+    await page.fill('#aSym', 'btc'); await page.fill('#aQty', '0.05'); await page.fill('#aCost', '120,000'); await page.fill('#aInst', '幣安');
+    await page.click('#btnASave');
+    await page.waitForFunction(() => !document.querySelector('#dlgAsset').open);
+    await page.waitForFunction(() => /比特幣/.test(document.querySelector('#assetList').textContent));
+    const row = await page.textContent('#assetList .arow:has-text("比特幣")');
+    const tw = 0.05 * 102345.6 * 30.62;
+    assert.match(row, /0\.05 BTC × US\$102,345\.60/, row);
+    assert.match(row, /今日 \+2\.22%/, row);
+    assert.match(row, new RegExp('損益 \\+' + Math.round(tw - 120000).toLocaleString('en-US')), row);
+    assert.match(row, /US\$5,117\.28/); assert.match(row, /幣安/);
+    assert.strictEqual(num(await page.$eval('#assetList .arow:has-text("比特幣") .av', e => e.textContent)), Math.round(tw));
+    const after = num(await page.textContent('#nwBox .nw-total'));
+    assert.ok(Math.abs(after - before - tw) <= 1, after + ' - ' + before + ' vs ' + tw);
+    assert.match(await page.textContent('#nwBox .nw-legend'), /加密貨幣/);
+    assert.match(await page.textContent('#assetsUpdated'), /加密貨幣 \d{2}:\d{2} 更新/);
+    const r = b.env.sheets['其他資產'].rows.find(x => x[1] === '加密貨幣');
+    assert.deepStrictEqual([r[2], r[3], r[6], r[8], r[13]], ['比特幣', '幣安', 0.05, 120000, 'BTC']);
+    await page.screenshot({ path: OUT + '/25-crypto-iphone.png', fullPage: true });
+  });
+  await t('加密貨幣：停在資產頁約每分鐘更新一次，切到其他頁就停', async () => {
+    const n0 = counts.assets || 0;
+    await advance(page, 75e3);
+    await page.waitForFunction(() => !/更新中/.test(document.querySelector('#assetsUpdated').textContent));
+    const n1 = counts.assets || 0;
+    assert.strictEqual(n1 - n0, 1, '75 秒內更新 1 次：' + (n1 - n0));
+    await page.click('#tabHold');
+    await advance(page, 3 * 60e3);
+    assert.strictEqual((counts.assets || 0) - n1, 0, '不在資產頁不更新');
+    await page.click('#tabAssets');
+  });
+  await t('加密貨幣：編輯數量（代號不變，不再查報價）；試算表只改數量', async () => {
+    await page.click('#assetList .arow:has-text("比特幣")');
+    await page.waitForSelector('#dlgAsset[open]');
+    assert.strictEqual(await page.inputValue('#aSym'), 'BTC'); assert.strictEqual(await page.inputValue('#aQty'), '0.05');
+    await page.fill('#aQty', '0.12345678');
+    await page.click('#btnASave');
+    await page.waitForFunction(() => /0\.12345678 BTC/.test(document.querySelector('#assetList').textContent));
+    assert.strictEqual(b.env.sheets['其他資產'].rows.find(x => x[1] === '加密貨幣')[6], 0.12345678);
+  });
   await t('市值分頁切到「淨資產」：趨勢與與前日變化（隔天 13:30 紀錄已含資產）', async () => {
     NOW = TPE(11, 9, 13, 31); b.env.ctx.recordTick();
     NOW = TPE(11, 6, 15, 0);
@@ -460,6 +514,7 @@ const pointCount = (page) => page.$eval('#chBox .ch-line', p => (p.getAttribute(
     await page.click('#histMetric button[data-m="net"]');
     const rows = b.env.sheets['每日市值'].rows.slice(1);
     const last = rows[rows.length - 1];
+    assert.strictEqual(last[21], Math.round(0.12345678 * 102345.6 * 30.62), '紀錄含加密貨幣');
     assert.strictEqual(num(await page.textContent('#histTotal')), last[19]);
     const first = await page.$eval('#histList .hrec .chg', e => e.textContent);
     const d = last[20];

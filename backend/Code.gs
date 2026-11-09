@@ -7,7 +7,7 @@
  *   3. 美股報價：Yahoo Finance（query1 → query2 備援）
  *   4. 美元兌台幣匯率：Yahoo（TWD=X）→ open.er-api.com 備援
  *   5. 每檔股票的新聞：Google 新聞 RSS
- *   9. 其他資產：未上市股票、保險、存款、貸款（「其他資產」工作表，手動維護），每日紀錄同時記下淨資產
+ *   9. 其他資產：未上市股票、保險、存款、貸款、加密貨幣（Yahoo 美元價即時換算台幣）（「其他資產」工作表，手動維護），每日紀錄同時記下淨資產
  *   8. 每日市值：台北時間每天 13:30（等收盤價公布）記錄總市值與每檔明細到「每日市值」「市值明細」工作表
  *   7. 走勢圖：Yahoo 分鐘線＋每分鐘排程紀錄的證交所報價（台股 Yahoo 延遲 20 分鐘，用紀錄補上）
  *   6. 重要時程：台股法說會（公開資訊觀測站）、美股財報日與除息日（Yahoo）、
@@ -19,7 +19,7 @@
 var SHEET_HOLD = '持倉';
 var SHEET_INFO = '說明';
 var HEADERS = ['代號', '市場', '名稱', '股數', '平均成本', '新聞關鍵字', '備註'];
-var VERSION = '1.5.0';
+var VERSION = '1.6.0';
 
 var CACHE_QUOTE_SEC = 15;        // 開盤中報價快取
 var CACHE_QUOTE_CLOSED_SEC = 600; // 收盤後報價快取（價格不會變，省額度）
@@ -1627,7 +1627,7 @@ function recorderStatus_() {
 var SHEET_DAILY = '每日市值';
 var SHEET_DAILY_DET = '市值明細';
 var DAILY_HEADERS = ['日期', '紀錄時間', '總市值', '台股市值', '美股市值(台幣)', '美股市值(美元)', '美元匯率', '總成本', '未實現損益', '報酬率', '市值變化', '市值變化%', '損益變化', '持股檔數', '備註',
-  '未上市股票', '保險', '存款', '貸款', '淨資產', '淨資產變化'];
+  '未上市股票', '保險', '存款', '貸款', '淨資產', '淨資產變化', '加密貨幣'];
 var DET_HEADERS = ['日期', '代號', '名稱', '市場', '股數', '價格', '幣別', '市值(原幣)', '市值(台幣)', '成本(台幣)', '未實現損益(台幣)', '報價時間', '備註'];
 var SNAP_MIN = 13 * 60 + 31;     // 13:31 起記錄（13:30 收盤撮合結果公布後）
 var SNAP_WAIT_UNTIL = 13 * 60 + 45;   // 收盤價最晚等到 13:45，之後就用拿得到的價格
@@ -1654,6 +1654,7 @@ function ensureDailySheets_() {
   if (String(head[DAILY_HEADERS.length - 1]) !== DAILY_HEADERS[DAILY_HEADERS.length - 1]) {
     d.getRange(1, 1, 1, DAILY_HEADERS.length).setValues([DAILY_HEADERS]).setFontWeight('bold');
     rangeCols_(d, 'P:T').forEach(function (c) { d.getRange(c).setNumberFormat('#,##0'); });
+    d.getRange('V:V').setNumberFormat('#,##0');
     d.getRange('U:U').setNumberFormat('[Red]"▲"#,##0;[Green]"▼"#,##0;0');
   }
   var t = ss.getSheetByName(SHEET_DAILY_DET);
@@ -1777,17 +1778,26 @@ function snapshotDaily_() {
     });
     if (holdings.length && !det.length) return { skipped: 'noquotes' };
     // 其他資產：以記錄當下的匯率換算台幣
+    var hasCry = assets.some(function (a) { return a.type === '加密貨幣'; });
     var fxm = assetFx_(assets, fx);
+    if (hasCry) cryptoPrice_(assets, fxm.USD);
     var at = assetTotals_(assets, fxm);
     assets.forEach(function (a) {
       var v = assetValue_(a), rate = fxm[a.cur];
       if (!rate) return;
       var sign = a.type === '貸款' ? -1 : 1;
+      if (a.type === '加密貨幣') {
+        if (a.price == null) return;
+        det.push([day, a.symbol, a.name, a.type, a.shares, a.priceUsd, 'USD', Math.round(a.shares * a.priceUsd * 100) / 100, Math.round(v),
+          a.cost != null ? Math.round(a.cost) : '', a.cost != null ? Math.round(v - a.cost) : '', a.qtime ? tpeParts_(a.qtime).iso + ' ' + hm_(a.qtime) : '', '']);
+        return;
+      }
       det.push([day, '', a.name, a.type, a.type === '未上市' ? a.shares : '', a.type === '未上市' ? a.price : '', a.cur,
         Math.round(sign * v * 100) / 100, Math.round(sign * v * rate), a.cost != null && a.type !== '貸款' ? Math.round(a.cost * rate) : '',
         a.cost != null && (a.type === '未上市' || a.type === '保險') ? Math.round((v - a.cost) * rate) : '', a.updated ? '更新 ' + a.updated : '', a.inst || '']);
     });
     if (at.missing.length) notes.push(at.missing.join('、') + ' 匯率取不到，未計入淨資產');
+    if (at.cryMissing.length) notes.push(at.cryMissing.join('、') + ' 報價取不到，未計入淨資產');
     if (carried.length) notes.push(carried.length + ' 檔缺報價，沿用前一日價格');
     if (missing.length) notes.push(missing.length + ' 檔沒有報價，未計入');
     // 持股變動（新增、刪除、股數改變）：市值變化會包含買賣，看「損益變化」才是漲跌
@@ -1801,8 +1811,8 @@ function snapshotDaily_() {
       cost, pnl, cost ? Math.round(pnl / cost * 1e6) / 1e6 : '',
       prev ? total - prev.total : '', prev && prev.total ? Math.round((total - prev.total) / prev.total * 1e6) / 1e6 : '', prev ? pnl - prev.pnl : '',
       tot.n, notes.join('；'),
-      at.unl, at.ins, at.dep, at.loan, total + at.unl + at.ins + at.dep - at.loan,
-      prev && prev.net != null ? (total + at.unl + at.ins + at.dep - at.loan) - prev.net : ''];
+      at.unl, at.ins, at.dep, at.loan, total + at.unl + at.ins + at.dep + at.cry - at.loan,
+      prev && prev.net != null ? (total + at.unl + at.ins + at.dep + at.cry - at.loan) - prev.net : '', at.cry];
     sh.daily.getRange(sh.daily.getLastRow() + 1, 1, 1, row.length).setValues([row]);
     sh.det.getRange(sh.det.getLastRow() + 1, 1, det.length, DET_HEADERS.length).setValues(det);
     cachePut_('snap:' + day, 1, 21600);
@@ -1817,10 +1827,10 @@ function history_(withDetail) {
     var num = function (v) { return v === '' || v == null ? null : Number(v); };
     return { date: String(r[0]), time: String(r[1]), total: num(r[2]), tw: num(r[3]), usT: num(r[4]), usUsd: num(r[5]), fx: num(r[6]),
       cost: num(r[7]), pnl: num(r[8]), ret: num(r[9]), dMv: num(r[10]), dPct: num(r[11]), dPnl: num(r[12]), count: num(r[13]), note: String(r[14] || ''),
-      unl: num(r[15]), ins: num(r[16]), dep: num(r[17]), loan: num(r[18]), net: num(r[19]), dNet: num(r[20]) };
+      unl: num(r[15]), ins: num(r[16]), dep: num(r[17]), loan: num(r[18]), net: num(r[19]), dNet: num(r[20]), cry: num(r[21]) };
   }).filter(function (r) { return /^\d{4}-\d{2}-\d{2}$/.test(r.date) && r.total != null; });
   var out = { rows: rows, settings: pnlSettings_(), snapTime: '13:30' };
-  if (withDetail) { out.assets = readAssets_(); out.assets.forEach(function (x) { delete x.row; }); out.assetFx = assetFx_(out.assets, null); }
+  if (withDetail) { out.assets = readAssets_(); out.assets.forEach(function (x) { delete x.row; }); out.assetFx = assetFx_(out.assets, null); cryptoPrice_(out.assets, out.assetFx.USD); }
   if (withDetail) {
     var dl = sh.det.getLastRow();
     out.details = dl < 2 ? [] : sh.det.getRange(2, 1, dl - 1, DET_HEADERS.length).getValues().map(function (r) {
@@ -1833,8 +1843,9 @@ function history_(withDetail) {
 /* ===================== 其他資產（未上市、保險、存款、貸款） ===================== */
 
 var SHEET_ASSETS = '其他資產';
-var ASSET_HEADERS = ['ID', '類別', '名稱', '機構', '幣別', '金額', '股數', '每股價格', '成本', '利率(%)', '每月還款', '更新日期', '備註'];
-var ASSET_TYPES = ['未上市', '保險', '存款', '貸款'];
+var ASSET_HEADERS = ['ID', '類別', '名稱', '機構', '幣別', '金額', '股數', '每股價格', '成本', '利率(%)', '每月還款', '更新日期', '備註', '代號'];
+var ASSET_TYPES = ['未上市', '保險', '存款', '貸款', '加密貨幣'];
+var COIN_NAMES = { BTC: '比特幣', ETH: '以太幣', SOL: 'Solana', USDT: '泰達幣', USDC: 'USDC', BNB: '幣安幣', XRP: '瑞波幣', DOGE: '狗狗幣', ADA: 'Cardano', TRX: '波場幣', AVAX: 'Avalanche', DOT: 'Polkadot', LINK: 'Chainlink', LTC: '萊特幣', BCH: '比特幣現金', TON: 'Toncoin' };
 var ASSET_CURS = ['TWD', 'USD', 'JPY', 'CNY', 'AUD', 'EUR', 'HKD', 'GBP'];
 
 function assetSheet_() {
@@ -1846,6 +1857,11 @@ function assetSheet_() {
     sh.getRange(1, 1, 1, ASSET_HEADERS.length).setValues([ASSET_HEADERS]).setFontWeight('bold');
     sh.setFrozenRows(1);
     ['F:F', 'I:I', 'K:K'].forEach(function (c) { sh.getRange(c).setNumberFormat('#,##0.##'); });
+  }
+  // 舊版只有 13 欄：補上「代號」欄（加密貨幣用）
+  if (String(sh.getRange(1, ASSET_HEADERS.length).getValues()[0][0]) !== '代號') {
+    sh.getRange(1, 1, 1, ASSET_HEADERS.length).setValues([ASSET_HEADERS]).setFontWeight('bold');
+    sh.getRange('N:N').setNumberFormat('@');
   }
   return sh;
 }
@@ -1865,9 +1881,11 @@ function readAssets_() {
   var vals = sh.getRange(2, 1, last - 1, ASSET_HEADERS.length).getValues();
   var out = [], fix = [];
   vals.forEach(function (r, i) {
-    var type = String(r[1] || '').trim().replace('未上市股票', '未上市').replace('保單', '保險').replace('借款', '貸款');
+    var type = String(r[1] || '').trim().replace('未上市股票', '未上市').replace('保單', '保險').replace('借款', '貸款').replace(/^(虛擬貨幣|加密貨幣|幣)$/, '加密貨幣');
     if (ASSET_TYPES.indexOf(type) < 0) return;
+    var symbol = String(r[13] || '').trim().toUpperCase().replace(/-USD$/, '');
     var name = String(r[2] || '').trim();
+    if (type === '加密貨幣') { if (!/^[A-Z0-9]{2,10}$/.test(symbol)) { if (/^[A-Za-z0-9]{2,10}$/.test(name)) symbol = name.toUpperCase(); else return; } if (!name) name = COIN_NAMES[symbol] || symbol; }
     if (!name) return;
     var id = String(r[0] || '').trim();
     if (!id) { id = Utilities.getUuid().replace(/-/g, '').slice(0, 12); fix.push([i + 2, id]); }
@@ -1878,6 +1896,8 @@ function readAssets_() {
     var n = function (v) { var x = toNumber_(v); return isNaN(x) ? null : x; };
     out.push({ id: id, type: type, name: name, inst: String(r[3] || '').trim(), cur: cur, amount: n(r[5]),
       shares: n(r[6]), price: n(r[7]), cost: n(r[8]), rate: n(r[9]), monthly: n(r[10]), updated: cellDate_(r[11]), note: String(r[12] || '').trim(), row: i + 2 });
+    var last = out[out.length - 1];
+    if (type === '加密貨幣') { last.symbol = symbol; last.cur = 'TWD'; last.price = null; last.amount = null; }
   });
   fix.forEach(function (f) { sh.getRange(f[0], 1).setValue(f[1]); });
   return out;
@@ -1885,6 +1905,7 @@ function readAssets_() {
 
 /** 原幣價值：未上市＝股數×每股價格；其他＝金額（貸款為剩餘本金，正數） */
 function assetValue_(a) {
+  if (a.type === '加密貨幣') return a.shares != null && a.price != null ? a.shares * a.price : null;
   if (a.type === '未上市' && a.shares != null && a.price != null) return a.shares * a.price;
   return a.amount || 0;
 }
@@ -1893,7 +1914,7 @@ function assetValue_(a) {
 function assetFx_(assets, usdRate) {
   var out = { TWD: 1 };
   var curs = {};
-  assets.forEach(function (a) { if (a.cur !== 'TWD') curs[a.cur] = 1; });
+  assets.forEach(function (a) { var c = a.type === '加密貨幣' ? 'USD' : a.cur; if (c !== 'TWD') curs[c] = 1; });
   var need = [];
   Object.keys(curs).forEach(function (c) {
     if (c === 'USD') {
@@ -1928,20 +1949,65 @@ function assetFx_(assets, usdRate) {
 }
 
 function assetTotals_(assets, fxm) {
-  var t = { unl: 0, ins: 0, dep: 0, loan: 0, missing: [] };
-  var key = { '未上市': 'unl', '保險': 'ins', '存款': 'dep', '貸款': 'loan' };
+  var t = { unl: 0, ins: 0, dep: 0, loan: 0, cry: 0, missing: [], cryMissing: [] };
+  var key = { '未上市': 'unl', '保險': 'ins', '存款': 'dep', '貸款': 'loan', '加密貨幣': 'cry' };
   assets.forEach(function (a) {
+    if (a.type === '加密貨幣' && a.price == null) {
+      if (a.priceUsd != null) { if (t.missing.indexOf('USD') < 0) t.missing.push('USD'); }
+      else if (t.cryMissing.indexOf(a.symbol) < 0) t.cryMissing.push(a.symbol);
+      return;
+    }
     var rate = fxm[a.cur];
     if (!rate) { if (t.missing.indexOf(a.cur) < 0) t.missing.push(a.cur); return; }
     t[key[a.type]] += assetValue_(a) * rate;
   });
-  ['unl', 'ins', 'dep', 'loan'].forEach(function (k) { t[k] = Math.round(t[k]); });
+  ['unl', 'ins', 'dep', 'loan', 'cry'].forEach(function (k) { t[k] = Math.round(t[k]); });
   return t;
+}
+
+/**
+ * 加密貨幣即時價：Yahoo（BTC-USD 等）一次查全部，所有裝置共用 60 秒快取。
+ * 會在每筆加上 priceUsd（美元價）、price（換算台幣後的每單位價格）、qtime。
+ */
+function cryptoQuotes_(symbols) {
+  var out = {}, need = [];
+  // 平常 60 秒內共用；Google 額度用量偏高時放寬到 5 分鐘
+  var fresh = usage_() >= BUDGET_SOFT ? 300000 : 60000;
+  symbols.forEach(function (s) { var c = cacheGet_('cq:' + s); if (c && Date.now() - c.at < fresh) out[s] = c; else need.push(s); });
+  if (need.length && usage_() + 2 <= BUDGET_STOP) {
+    try {
+      var yb = yahooQuoteBatch_(need.map(function (s) { return s + '-USD'; }));
+      var miss = [];
+      need.forEach(function (s) { var q = yb.quotes[s + '-USD']; if (q && q.price > 0) out[s] = { usd: q.price, prev: q.prevClose, time: q.time, at: Date.now() }; else miss.push(s); });
+      if (miss.length) {
+        var y = fetchYahoo_(miss.map(function (s) { return { key: s, symbol: s + '-USD', market: 'CRYPTO' }; }));
+        miss.forEach(function (s) { if (y[s]) out[s] = { usd: y[s].price, prev: y[s].prevClose, time: y[s].time, at: Date.now() }; });
+      }
+      need.forEach(function (s) { if (out[s]) cachePut_('cq:' + s, out[s], 21600); });
+    } catch (e) { if (e && e.code === 'quota') QUOTA_NOTICE = e.userMessage; else rethrowQuota_(e); }
+  }
+  // 抓不到時用最後一次的價格（6 小時內），並標示時間
+  need.forEach(function (s) { if (!out[s]) { var c = cacheGet_('cq:' + s); if (c) out[s] = c; } });
+  return out;
+}
+function cryptoPrice_(assets, usdRate) {
+  var syms = [];
+  assets.forEach(function (a) { if (a.type === '加密貨幣' && syms.indexOf(a.symbol) < 0) syms.push(a.symbol); });
+  if (!syms.length) return {};
+  var q = cryptoQuotes_(syms);
+  assets.forEach(function (a) {
+    if (a.type !== '加密貨幣') return;
+    var x = q[a.symbol];
+    a.priceUsd = x ? x.usd : null; a.prevUsd = x ? x.prev : null; a.qtime = x ? x.time : null;
+    a.price = x && usdRate ? x.usd * usdRate : null;
+  });
+  return q;
 }
 
 function assetsData_() {
   var assets = readAssets_();
   var fxm = assetFx_(assets, null);
+  cryptoPrice_(assets, fxm.USD);
   assets.forEach(function (a) { delete a.row; });
   return { assets: assets, fx: fxm, types: ASSET_TYPES, currencies: ASSET_CURS, notice: QUOTA_NOTICE };
 }
@@ -1949,13 +2015,26 @@ function assetsData_() {
 function upsertAsset_(a) {
   var type = String(a.type || '');
   if (ASSET_TYPES.indexOf(type) < 0) throw userError_('類別要是：' + ASSET_TYPES.join('、'));
+  var symbol = '';
+  if (type === '加密貨幣') {
+    symbol = String(a.symbol || '').trim().toUpperCase().replace(/-USD$/, '');
+    if (!/^[A-Z0-9]{2,10}$/.test(symbol)) throw userError_('請填加密貨幣代號，例如 BTC、ETH');
+    // 新增或換代號時確認 Yahoo 查得到（只改數量、成本時不必再查）
+    var same = a.id && readAssets_().some(function (x) { return x.id === String(a.id) && x.symbol === symbol; });
+    if (!same && !cryptoQuotes_([symbol])[symbol]) throw userError_('查不到 ' + symbol + ' 的報價。請確認代號（Yahoo 上要有 ' + symbol + '-USD），或稍後再試', 'not_found');
+    if (!String(a.name || '').trim()) a.name = COIN_NAMES[symbol] || symbol;
+    a.cur = 'TWD';
+  }
   var name = String(a.name || '').trim().slice(0, 40);
   if (!name) throw userError_('請填名稱');
   var cur = String(a.cur || 'TWD').toUpperCase();
   if (ASSET_CURS.indexOf(cur) < 0) throw userError_('不支援的幣別：' + cur);
   var num = function (v) { if (v === '' || v == null) return null; var x = toNumber_(v); return isNaN(x) ? NaN : x; };
   var amount = num(a.amount), shares = num(a.shares), price = num(a.price), cost = num(a.cost), rate = num(a.rate), monthly = num(a.monthly);
-  if (type === '未上市') {
+  if (type === '加密貨幣') {
+    if (!(shares > 0)) throw userError_('數量要是大於 0 的數字');
+    amount = null; price = null;
+  } else if (type === '未上市') {
     if (!(shares > 0)) throw userError_('股數要是大於 0 的數字');
     if (!(price >= 0)) throw userError_('每股參考價要是 0 以上的數字');
     amount = null;
@@ -1969,9 +2048,9 @@ function upsertAsset_(a) {
   var updated = cellDate_(a.updated) || tpeParts_(Date.now()).iso;
   var row = [a.id ? String(a.id) : Utilities.getUuid().replace(/-/g, '').slice(0, 12), type, name, String(a.inst || '').trim().slice(0, 40), cur,
     amount == null ? '' : amount, shares == null ? '' : shares, price == null ? '' : price, cost == null ? '' : cost,
-    rate == null ? '' : rate, monthly == null || type !== '貸款' ? '' : monthly, updated, String(a.note || '').trim().slice(0, 200)];
+    rate == null || !(type === '存款' || type === '貸款') ? '' : rate, monthly == null || type !== '貸款' ? '' : monthly, updated, String(a.note || '').trim().slice(0, 200), symbol];
   var sh = assetSheet_();
-  sh.getRange('A:A').setNumberFormat('@'); sh.getRange('L:L').setNumberFormat('@');
+  sh.getRange('A:A').setNumberFormat('@'); sh.getRange('L:L').setNumberFormat('@'); sh.getRange('N:N').setNumberFormat('@');
   var hit = a.id ? readAssets_().filter(function (x) { return x.id === String(a.id); })[0] : null;
   if (a.id && !hit) throw userError_('找不到這筆資料（可能已在其他裝置刪除），請重新整理');
   if (hit) sh.getRange(hit.row, 1, 1, row.length).setValues([row]);

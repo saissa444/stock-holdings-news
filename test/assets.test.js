@@ -89,7 +89,7 @@ t('每日 13:30 紀錄：加上未上市／保險／存款／貸款與淨資產�
   B.post({ action: 'upsert', holding: { code: '2330', shares: 1000, cost: 600, name: '台積電' } });
   NOW = TPE(11, 9, 13, 31); B.env.ctx.recordTick();
   const rows = B.env.sheets['每日市值'].rows;
-  assert.strictEqual(rows[0].length, 21); assert.strictEqual(rows[0][19], '淨資產');
+  assert.strictEqual(rows[0].length, 22); assert.strictEqual(rows[0][19], '淨資產');
   const r = rows[1];
   const unl = Math.round(2000 * 45.5), ins = Math.round(12000 * 30.62 + 3000000 * 0.2012), dep = Math.round(400000 + 10000 * 20.15), loan = 3200000;
   assert.deepStrictEqual(r.slice(15, 19), [unl, ins, dep, loan]);
@@ -160,6 +160,117 @@ t('匯率取不到的幣別：不計入淨資產並在備註寫明', () => {
   E.state.erDown = false; E.env.clearCache();
   const f = E.get({ action: 'assets' }).data.fx;
   assert.ok(Math.abs(f.GBP - 30.7 / 0.79) < 1e-9, '備援來源換算交叉匯率');
+});
+
+// ---------------- 加密貨幣 ----------------
+t('加密貨幣：新增 BTC／ETH，Yahoo 美元價 × 美元匯率換算台幣；名稱自動帶入', () => {
+  NOW = TPE(11, 9, 8, 0);
+  const C = backend();
+  C.post({ action: 'assetUpsert', asset: { type: '存款', name: '活存', amount: 100000 } });
+  let r = C.post({ action: 'assetUpsert', asset: { type: '加密貨幣', symbol: 'btc', shares: '0.5', cost: 1200000, inst: '幣安' } });
+  assert.ok(r.ok, JSON.stringify(r));
+  r = C.post({ action: 'assetUpsert', asset: { type: '加密貨幣', symbol: 'ETH-USD', name: '我的以太', shares: 2.25 } });
+  assert.ok(r.ok, JSON.stringify(r));
+  const d = C.get({ action: 'assets' }).data;
+  const btc = d.assets.find(x => x.symbol === 'BTC'), eth = d.assets.find(x => x.symbol === 'ETH');
+  assert.strictEqual(btc.name, '比特幣'); assert.strictEqual(btc.cur, 'TWD'); assert.strictEqual(btc.inst, '幣安');
+  assert.strictEqual(eth.name, '我的以太');
+  assert.strictEqual(btc.priceUsd, 102345.6); assert.strictEqual(btc.prevUsd, 100120.4);
+  assert.ok(Math.abs(btc.price - 102345.6 * 30.62) < 1e-6, btc.price);
+  assert.ok(Math.abs(eth.price - 3456.78 * 30.62) < 1e-6);
+  assert.strictEqual(d.fx.USD, 30.62);
+  assert.ok(d.types.includes('加密貨幣'));
+  const row = C.env.sheets['其他資產'].rows.find(x => x[1] === '加密貨幣');
+  assert.strictEqual(row[13], 'BTC'); assert.strictEqual(row[6], 0.5); assert.strictEqual(row[5], ''); assert.strictEqual(row[7], '');
+  // 每日紀錄
+  NOW = TPE(11, 9, 13, 31); C.env.ctx.recordTick();
+  const day = C.env.sheets['每日市值'].rows;
+  assert.strictEqual(day[0][21], '加密貨幣');
+  const cry = Math.round(0.5 * 102345.6 * 30.62 + 2.25 * 3456.78 * 30.62);
+  assert.strictEqual(day[1][21], cry);
+  assert.strictEqual(day[1][19], 100000 + cry, '淨資產含加密貨幣');
+  const det = C.env.sheets['市值明細'].rows.filter(x => x[3] === '加密貨幣');
+  assert.strictEqual(det.length, 2);
+  const b = det.find(x => x[1] === 'BTC');
+  assert.deepStrictEqual(b.slice(4, 11), [0.5, 102345.6, 'USD', 51172.8, Math.round(0.5 * 102345.6 * 30.62), 1200000, Math.round(0.5 * 102345.6 * 30.62) - 1200000]);
+  const h = C.get({ action: 'history', detail: '1' }).data;
+  assert.strictEqual(h.rows[0].cry, cry);
+  assert.ok(h.assets.find(x => x.symbol === 'BTC').price > 0, 'history detail 也有即時價');
+  assert.ok(!/持股有變動/.test(day[1][14]));
+  console.log('   加密貨幣', cry, '（BTC 0.5 + ETH 2.25）');
+  globalThis.__C = C;
+});
+
+t('加密貨幣：輸入驗證（代號、數量、查不到的代號）；改數量不必再查報價', () => {
+  const C = globalThis.__C;
+  const bad = (a, re) => { const r = C.post({ action: 'assetUpsert', asset: a }); assert.strictEqual(r.ok, false, JSON.stringify(r)); assert.match(r.error, re); return r; };
+  bad({ type: '加密貨幣', symbol: '', shares: 1 }, /代號/);
+  bad({ type: '加密貨幣', symbol: 'B T C', shares: 1 }, /代號/);
+  bad({ type: '加密貨幣', symbol: 'BTC', shares: 0 }, /數量/);
+  const nf = bad({ type: '加密貨幣', symbol: 'NOPECOIN', shares: 1 }, /查不到 NOPECOIN/);
+  assert.strictEqual(nf.code, 'not_found');
+  const btc = C.get({ action: 'assets' }).data.assets.find(x => x.symbol === 'BTC');
+  C.state.cryptoDown = true; C.env.clearCache();
+  const r = C.post({ action: 'assetUpsert', asset: Object.assign({}, btc, { shares: 0.6 }) });
+  assert.ok(r.ok, '只改數量：Yahoo 掛掉也能存 ' + JSON.stringify(r));
+  bad({ type: '加密貨幣', symbol: 'SOL', shares: 1 }, /查不到 SOL/);
+  C.state.cryptoDown = false;
+});
+
+t('加密貨幣：Yahoo 暫時抓不到時沿用最後價格；完全沒有價格就不計入並註明', () => {
+  NOW = TPE(11, 9, 8, 0);
+  const C = backend();
+  C.post({ action: 'assetUpsert', asset: { type: '加密貨幣', symbol: 'BTC', shares: 1 } });
+  C.get({ action: 'assets' });                    // 快取一次價格
+  C.state.cryptoDown = true;
+  NOW += 5 * 60e3;
+  const a = C.get({ action: 'assets' }).data.assets[0];
+  assert.strictEqual(a.priceUsd, 102345.6, '沿用最後價格');
+  // 6 小時後快取也過期 → 不計入
+  NOW = TPE(11, 9, 13, 31); C.env.clearCache();
+  C.env.ctx.recordTick();
+  const r = C.env.sheets['每日市值'].rows[1];
+  assert.ok(r, '仍有記錄');
+  assert.strictEqual(r[21], 0);
+  assert.match(r[14], /BTC 報價取不到，未計入淨資產/);
+  const a2 = C.get({ action: 'assets' }).data.assets[0];
+  assert.strictEqual(a2.price, null);
+});
+
+t('加密貨幣：60 秒內多台裝置共用一次查價', () => {
+  NOW = TPE(11, 9, 8, 0);
+  const C = backend();
+  C.post({ action: 'assetUpsert', asset: { type: '加密貨幣', symbol: 'BTC', shares: 1 } });
+  C.post({ action: 'assetUpsert', asset: { type: '加密貨幣', symbol: 'ETH', shares: 1 } });
+  NOW += 61e3; C.get({ action: 'assets' });
+  C.env.resetFetchLog();
+  for (let i = 0; i < 10; i++) { NOW += 10e3; C.get({ action: 'assets' }); }   // 100 秒、10 次讀取
+  const q = C.env.fetchLog().filter(u => /BTC-USD|ETH-USD/.test(u));
+  assert.strictEqual(q.length, 1, '100 秒內只在滿 60 秒時重查一次：' + q.join('\n'));
+  assert.match(q[0], /BTC-USD%2CETH-USD|BTC-USD,ETH-USD/, '一次查兩個');
+});
+
+t('加密貨幣：試算表手動輸入（類別寫「虛擬貨幣」、代號留空但名稱寫 BTC）也讀得到；舊版 13 欄表自動補「代號」', () => {
+  NOW = TPE(11, 9, 8, 0);
+  const C = backend();
+  const sh = C.env.sheets['其他資產'];
+  sh.rows[0] = sh.rows[0].slice(0, 13);
+  sh.rows.push(['', '虛擬貨幣', 'BTC', '冷錢包', '', '', 0.1, '', '', '', '', '', '']);
+  const a = C.get({ action: 'assets' }).data.assets;
+  assert.strictEqual(a.length, 1);
+  assert.strictEqual(a[0].type, '加密貨幣'); assert.strictEqual(a[0].symbol, 'BTC'); assert.ok(a[0].price > 0);
+  assert.strictEqual(sh.rows[0][13], '代號');
+});
+
+t('舊版 21 欄「每日市值」表會補上「加密貨幣」欄', () => {
+  NOW = TPE(11, 9, 8, 0);
+  const C = backend();
+  const sh = C.env.sheets['每日市值'];
+  sh.rows = [sh.rows[0].slice(0, 21)];
+  C.post({ action: 'assetUpsert', asset: { type: '加密貨幣', symbol: 'ETH', shares: 1 } });
+  NOW = TPE(11, 9, 13, 31); C.env.ctx.recordTick();
+  assert.strictEqual(sh.rows[0][21], '加密貨幣');
+  assert.strictEqual(sh.rows[1][21], Math.round(3456.78 * 30.62));
 });
 
 console.log(`\n${passed} passed`);
