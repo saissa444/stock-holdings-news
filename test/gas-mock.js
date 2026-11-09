@@ -23,6 +23,7 @@ function makeEnv(fetchHandler, opts) {
     constructor(sh, r, c, nr, nc) { Object.assign(this, { sh, r, c, nr, nc }); }
     setNumberFormat(f) { for (let c = this.c; c < this.c + this.nc; c++) this.sh.fmt[c] = f; return this; }
     setFontWeight() { return this; }
+    setValue(v) { return this.setValues([[v]]); }
     setValues(vals) {
       for (let i = 0; i < this.nr; i++) {
         this.sh.rows[this.r - 1 + i] = this.sh.rows[this.r - 1 + i] || [];

@@ -369,6 +369,120 @@ const pointCount = (page) => page.$eval('#chBox .ch-line', p => (p.getAttribute(
   });
   await ctx.close();
 
+  // ───────── 資產頁：未上市、保險、存款、貸款 ─────────
+  b = backend({ at: TPE(11, 2, 8, 0) });
+  for (let d = 2; d <= 6; d++) { NOW = TPE(11, d, 13, 31); b.env.ctx.recordTick(); }
+  NOW = TPE(11, 6, 15, 0);
+  ({ ctx, page, errors } = await openApp(browser, b.code, iphone));
+  const num = (t) => Number(String(t).replace(/[^\d−\-]/g, '').replace('−', '-'));
+  async function addAsset(type, f) {
+    await page.click(`#assetList .asec:has(h3:text-is("${type === '未上市' ? '未上市股票' : type}")) .add`);
+    await page.waitForSelector('#dlgAsset[open]');
+    for (const [id, v] of Object.entries(f)) {
+      if (id === 'aCur') await page.selectOption('#aCur', v); else await page.fill('#' + id, String(v));
+    }
+    await page.click('#btnASave');
+    await page.waitForFunction(() => !document.querySelector('#dlgAsset').open);
+    await page.waitForFunction((n) => document.querySelector('#assetList').textContent.includes(n), f.aName);
+  }
+  await t('手機版：5 個頁籤一行放得下，新聞數字不擠', async () => {
+    const info = await page.$$eval('.tabs button', bs => bs.map(x => ({ t: x.textContent, over: x.scrollWidth > x.clientWidth + 1 })));
+    assert.deepStrictEqual(info.map(x => x.t.replace(/\d+/, '')), ['持倉', '新聞', '市值', '資產', '時程']);
+    assert.ok(info.every(x => !x.over), JSON.stringify(info));
+  });
+  await t('資產頁：沒有其他資產時，淨資產＝持股市值，各類別顯示新增提示', async () => {
+    await page.click('#tabAssets');
+    await page.waitForSelector('#nwBox .nw-total');
+    assert.strictEqual(num(await page.textContent('#nwBox .nw-total')), num(await page.textContent('#total')));
+    assert.strictEqual(await page.$$eval('#assetList .aempty', e => e.length), 4);
+  });
+  await t('新增四類資產；保險選美元、存款選日圓；淨資產＝股票＋未上市＋保險＋存款−貸款（獨立計算）', async () => {
+    await addAsset('未上市', { aName: '某未上市科技', aShares: '2,000', aPrice: '45.5', aCost: '60000' });
+    await addAsset('保險', { aName: '美元利變壽險', aInst: '某人壽', aCur: 'USD', aAmount: '12000', aCost: '10000' });
+    await addAsset('存款', { aName: '活存', aInst: '某銀行', aAmount: '350000', aRate: '1.2' });
+    await addAsset('存款', { aName: '日圓外幣', aCur: 'JPY', aAmount: '500000' });
+    await addAsset('貸款', { aName: '房貸', aInst: '某銀行', aAmount: '3200000', aRate: '2.185', aMonthly: '18000' });
+    const stock = num(await page.textContent('#total'));
+    const expNet = stock + 2000 * 45.5 + 12000 * 30.62 + 350000 + 500000 * 0.2012 - 3200000;
+    const shown = num(await page.textContent('#nwBox .nw-total'));
+    assert.ok(Math.abs(shown - Math.round(expNet)) <= 1, shown + ' vs ' + expNet);
+    assert.match(await page.textContent('#nwBox .nw-total'), /−/, '負的淨資產要顯示負號');
+    const txt = await page.textContent('#assetList');
+    assert.match(txt, /2,000 股 × 45\.50/); assert.match(txt, /損益 \+31,000（\+51\.67%）/);
+    assert.match(txt, /帳面 \+2,000（\+20\.00%）/); assert.match(txt, /美元 12,000/);
+    assert.match(txt, /年利率 2\.185%・每月還 18,000/); assert.match(txt, /−3,200,000/);
+    assert.match(txt, /日圓 500,000/);
+    const sheet = b.env.sheets['其他資產'].rows.slice(1);
+    assert.strictEqual(sheet.length, 5);
+    console.log('   淨資產', shown, '（股票', stock, '）');
+    assert.ok(await page.isHidden('#fab'), '資產頁不顯示「新增持股」');
+    await page.screenshot({ path: OUT + '/22-assets-iphone.png', fullPage: true });
+  });
+  await t('編輯：改金額自動把更新日期帶成今天；類別鎖定；超過 90 天顯示提醒', async () => {
+    await page.click('#assetList .arow:has-text("活存")');
+    await page.waitForSelector('#dlgAsset[open]');
+    assert.ok(await page.isDisabled('input[name="aType"][value="保險"]'));
+    await page.fill('#aUpdated', '2026-07-01');
+    await page.click('#btnASave');
+    await page.waitForFunction(() => /已 128 天未更新/.test(document.querySelector('#assetList').textContent));
+    await page.click('#assetList .arow:has-text("活存")');
+    await page.fill('#aAmount', '400000');
+    assert.strictEqual(await page.inputValue('#aUpdated'), '2026-11-06');
+    await page.click('#btnASave');
+    await page.waitForFunction(() => [...document.querySelectorAll('#assetList .arow')].some(r => /活存/.test(r.textContent) && /11\/6 更新/.test(r.textContent)));
+    assert.strictEqual(b.env.sheets['其他資產'].rows.find(r => r[2] === '活存')[5], 400000);
+  });
+  await t('輸入檢查：沒填名稱、未上市沒填股數會提示，不會送出', async () => {
+    await page.click(`#assetList .asec:has(h3:text-is("未上市股票")) .add`);
+    await page.click('#btnASave');
+    assert.match(await page.textContent('#eAName'), /名稱/);
+    assert.match(await page.textContent('#eAShares'), /股數/);
+    assert.ok(await page.isVisible('#aUnlFields') && await page.isHidden('#aAmountField') && await page.isHidden('#aRateField'));
+    await page.click('#aTypes label:has-text("貸款")');
+    assert.ok(await page.isChecked('input[name="aType"][value="貸款"]'));
+    assert.ok(await page.isVisible('#aMonthlyField') && await page.isHidden('#aCostField'));
+    assert.strictEqual(await page.textContent('#aAmountLabel'), '剩餘本金');
+    await page.click('#dlgAsset [data-close]');
+  });
+  await t('刪除（確認框按「確定」）', async () => {
+    page.once('dialog', d => { assert.match(d.message(), /確定要刪除「日圓外幣」/); d.accept(); });
+    await page.click('#assetList .arow:has-text("日圓外幣")');
+    await page.click('#btnADelete');
+    await page.waitForFunction(() => !/日圓外幣/.test(document.querySelector('#assetList').textContent));
+    assert.strictEqual(b.env.sheets['其他資產'].rows.length, 5);
+  });
+  await t('市值分頁切到「淨資產」：趨勢與與前日變化（隔天 13:30 紀錄已含資產）', async () => {
+    NOW = TPE(11, 9, 13, 31); b.env.ctx.recordTick();
+    NOW = TPE(11, 6, 15, 0);
+    await page.click('#tabHist');
+    await page.click('#btnRefresh');
+    await page.waitForFunction(() => /11\/9/.test(document.querySelector('#histList').textContent));
+    await page.click('#histMetric button[data-m="net"]');
+    const rows = b.env.sheets['每日市值'].rows.slice(1);
+    const last = rows[rows.length - 1];
+    assert.strictEqual(num(await page.textContent('#histTotal')), last[19]);
+    const first = await page.$eval('#histList .hrec .chg', e => e.textContent);
+    const d = last[20];
+    assert.ok(first.startsWith((d > 0 ? '▲ ' : '▼ ') + Math.abs(d).toLocaleString('en-US')), first + ' vs ' + d);
+    assert.match(await page.textContent('#histLegend'), /淨資產/);
+    await page.screenshot({ path: OUT + '/23-hist-net-iphone.png' });
+    await page.click('#histMetric button[data-m="stock"]');
+    assert.strictEqual(num(await page.textContent('#histTotal')), last[2]);
+  });
+  await t('沒有 JS 錯誤（資產頁）', async () => { assert.deepStrictEqual(errors, []); });
+  await ctx.close();
+
+  ({ ctx, page, errors } = await openApp(browser, b.code, desktop));
+  await t('電腦版：資產面板在持倉下方；匯出含淨資產欄位、趨勢圖、其他資產', async () => {
+    await page.waitForSelector('#assetList .arow');
+    await page.screenshot({ path: OUT + '/24-assets-desktop.png', fullPage: true });
+    const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#btnExport')]);
+    await dl.saveAs(OUT + '/assets-export.xlsx');
+    fs.writeFileSync(OUT + '/assets-expected.json', JSON.stringify({ daily: b.env.sheets['每日市值'].rows.slice(1), assets: b.env.sheets['其他資產'].rows.slice(1) }));
+    assert.deepStrictEqual(errors, []);
+  });
+  await ctx.close();
+
   console.log(`\n${passed} passed, ${failed} failed`);
   await browser.close(); server.close(); execServer.close(); echoServer.close();
   process.exit(failed ? 1 : 0);

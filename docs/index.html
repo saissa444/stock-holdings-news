@@ -88,7 +88,8 @@ header.top .up{color:#FF8A82} header.top .down{color:#5FD796} header.top .flat{c
 /* ---------- 主體 ---------- */
 main{max-width:1180px;margin:0 auto;padding:12px 12px calc(var(--sab) + 90px)}
 .tabs{display:flex;background:var(--field);border-radius:10px;padding:3px;margin:4px 0 12px}
-.tabs button{flex:1;border:0;background:transparent;padding:8px 0;border-radius:8px;font-weight:600;color:var(--muted)}
+.tabs button{flex:1;border:0;background:transparent;padding:8px 0;border-radius:8px;font-weight:600;color:var(--muted);white-space:nowrap;min-width:0}
+.tabs .cnt{font-size:11px;font-weight:600;margin-left:3px;font-family:var(--num)}
 .tabs button[aria-selected="true"]{background:var(--surface);color:var(--text);box-shadow:0 1px 2px rgba(15,25,45,.12)}
 .cols{display:block}
 .panel{background:var(--surface);border-radius:14px;overflow:hidden}
@@ -98,7 +99,7 @@ main{max-width:1180px;margin:0 auto;padding:12px 12px calc(var(--sab) + 90px)}
 @media (min-width:960px){
   .tabs{display:none}
   .cols{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:16px;align-items:start}
-  #panel-hold,#panel-news,#panel-events,#panel-hist{display:block !important}
+  #panel-hold,#panel-news,#panel-events,#panel-hist,#panel-assets{display:block !important}
   .col-left{display:flex;flex-direction:column;gap:16px;min-width:0}
   #panel-news{position:sticky;top:12px;max-height:calc(100vh - 24px);display:flex !important;flex-direction:column}
   #panel-news .news-scroll{overflow:auto}
@@ -138,6 +139,46 @@ main{max-width:1180px;margin:0 auto;padding:12px 12px calc(var(--sab) + 90px)}
 .seg button{flex:1;border:0;background:transparent;padding:6px 0;border-radius:7px;font-size:13.5px;font-weight:600;color:var(--muted)}
 .seg button[aria-pressed="true"]{background:var(--surface);color:var(--text);box-shadow:0 1px 2px rgba(15,25,45,.12)}
 .hist-body{padding:12px 14px 4px}
+.seg.metric{margin:0 0 10px}
+/* 資產負債 */
+:root{--c-stock:#2B4C8C;--c-unl:#6A43B5;--c-ins:#0F7C8C;--c-dep:#9A6200;--c-loan:#6B7486}
+@media (prefers-color-scheme:dark){:root{--c-stock:#8FB0F0;--c-unl:#B9A0F0;--c-ins:#5CC8D6;--c-dep:#E5B45A;--c-loan:#93A0B8}}
+.nw{padding:14px 14px 10px}
+.nw-label{font-size:13px;color:var(--muted)}
+.nw-total{font-family:var(--num);font-size:32px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1.15}
+.nw-total small{font-size:16px;color:var(--muted);margin-right:3px;font-weight:600}
+.nw-sub{display:flex;flex-wrap:wrap;gap:2px 16px;font-size:13px;color:var(--muted);margin-top:2px}
+.nw-sub b{font-family:var(--num);font-weight:600;color:var(--text);font-variant-numeric:tabular-nums}
+.nw-bar{display:flex;height:12px;gap:2px;border-radius:4px;overflow:hidden;margin-top:12px;background:var(--field)}
+.nw-bar span{display:block;min-width:3px}
+.nw-legend{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:4px 14px;margin-top:8px;font-size:12.5px;color:var(--muted)}
+.nw-legend span{display:flex;align-items:center;gap:6px;white-space:nowrap}
+.nw-legend i{width:9px;height:9px;border-radius:2px;flex:none}
+.nw-legend b{font-family:var(--num);font-weight:600;color:var(--text);margin-left:auto;font-variant-numeric:tabular-nums}
+.asec{border-top:1px solid var(--line)}
+.asec-h{display:flex;align-items:center;gap:8px;padding:10px 14px 6px}
+.asec-h h3{margin:0;font-size:15px;display:flex;align-items:center;gap:7px}
+.asec-h h3 i{width:10px;height:10px;border-radius:3px}
+.asec-h .sum{margin-left:auto;font-family:var(--num);font-size:16px;font-weight:600;font-variant-numeric:tabular-nums}
+.asec-h .add{border:0;background:var(--field);border-radius:8px;width:32px;height:32px;font-size:20px;line-height:1;color:var(--accent);flex:none}
+.arow{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:1px 12px;width:100%;text-align:left;background:transparent;border:0;padding:8px 14px 10px}
+.arow:hover{background:var(--field)}
+.arow .an{font-weight:600;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.arow .an small{font-weight:400;color:var(--muted);margin-left:6px;font-size:12.5px}
+.arow .av{text-align:right;font-family:var(--num);font-size:16.5px;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
+.arow .as{font-size:12.5px;color:var(--muted);min-width:0}
+.arow .as>span{white-space:nowrap}
+@media (max-width:959px){body[data-tab="assets"] .fab{display:none}}
+.arow .ao{text-align:right;font-size:12.5px;color:var(--muted);white-space:nowrap}
+.arow .stale{color:var(--warn);font-weight:600}
+.aempty{padding:2px 14px 12px;font-size:13px;color:var(--muted)}
+.typeseg{display:flex;flex-wrap:wrap;gap:6px}
+.typeseg label{flex:1;min-width:70px}
+.typeseg input{position:absolute;opacity:0;pointer-events:none}
+.typeseg span{display:block;text-align:center;padding:9px 0;border-radius:9px;background:var(--field);font-weight:600;color:var(--muted);border:1.5px solid transparent;cursor:pointer}
+.typeseg input:checked+span{color:var(--text);border-color:var(--accent);background:var(--surface)}
+.typeseg input:focus-visible+span{outline:2px solid var(--accent);outline-offset:2px}
+.f2{display:grid;grid-template-columns:1fr 1fr;gap:0 10px}
 .hist-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 12px;min-height:48px}
 .hist-total{font-family:var(--num);font-size:28px;font-weight:700;font-variant-numeric:tabular-nums}
 .hist-total small{font-size:15px;color:var(--muted);margin-right:3px;font-weight:600}
@@ -288,8 +329,9 @@ dialog::backdrop{background:rgba(10,16,30,.45)}
 <main id="main">
   <div class="tabs" role="tablist">
     <button role="tab" id="tabHold" aria-selected="true" aria-controls="panel-hold">持倉</button>
-    <button role="tab" id="tabNews" aria-selected="false" aria-controls="panel-news">新聞<span id="newsCount"></span></button>
+    <button role="tab" id="tabNews" aria-selected="false" aria-controls="panel-news">新聞<span id="newsCount" class="cnt"></span></button>
     <button role="tab" id="tabHist" aria-selected="false" aria-controls="panel-hist">市值</button>
+    <button role="tab" id="tabAssets" aria-selected="false" aria-controls="panel-assets">資產</button>
     <button role="tab" id="tabEvents" aria-selected="false" aria-controls="panel-events">時程</button>
   </div>
   <div class="cols">
@@ -308,9 +350,18 @@ dialog::backdrop{background:rgba(10,16,30,.45)}
       </div>
       <div id="holdList"></div>
     </section>
+    <section class="panel hidden" id="panel-assets" role="tabpanel" aria-labelledby="tabAssets">
+      <div class="panel-head"><h2>資產負債</h2><span class="hsub" id="assetsUpdated"></span></div>
+      <div class="nw" id="nwBox"></div>
+      <div id="assetList"></div>
+      <div class="evnote">未上市股票、保險、存款、貸款的金額都是手動輸入，不會自動更新；外幣以當下匯率換算台幣。超過 90 天沒更新的會標示提醒。也可以直接在試算表的「其他資產」工作表編輯。</div>
+    </section>
     <section class="panel hidden" id="panel-hist" role="tabpanel" aria-labelledby="tabHist">
       <div class="panel-head"><h2>每日市值</h2><button type="button" class="btn small" id="btnExport">匯出 Excel／Numbers</button></div>
       <div class="hist-body">
+        <div class="seg metric" id="histMetric" role="group" aria-label="紀錄項目">
+          <button type="button" data-m="stock" aria-pressed="true">持股市值</button><button type="button" data-m="net" aria-pressed="false">淨資產</button>
+        </div>
         <div class="hist-head"><span class="hist-total" id="histTotal">—</span><span class="hist-sub" id="histSub"></span></div>
         <div class="ch-box" id="histBox" style="height:200px"></div>
         <div class="legend" id="histLegend"></div>
@@ -337,6 +388,49 @@ dialog::backdrop{background:rgba(10,16,30,.45)}
 </main>
 
 <button class="fab hidden" id="fab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>新增持股</button>
+
+<!-- 其他資產 -->
+<dialog id="dlgAsset" aria-labelledby="assetTitle">
+  <form class="dlg" id="formAsset" method="dialog" novalidate>
+    <div class="dlg-head"><h2 id="assetTitle">新增資產</h2><button type="button" class="icon-btn" data-close aria-label="關閉"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+    <div class="dlg-body">
+      <div class="field">
+        <label>類別</label>
+        <div class="typeseg" id="aTypes" role="radiogroup" aria-label="類別">
+          <label><input type="radio" name="aType" value="未上市"><span>未上市股票</span></label>
+          <label><input type="radio" name="aType" value="保險"><span>保險</span></label>
+          <label><input type="radio" name="aType" value="存款"><span>存款</span></label>
+          <label><input type="radio" name="aType" value="貸款"><span>貸款</span></label>
+        </div>
+      </div>
+      <div class="field"><label for="aName">名稱</label><input id="aName" autocomplete="off" maxlength="40"><div class="err hidden" id="eAName"></div></div>
+      <div class="f2">
+        <div class="field"><label for="aInst" id="aInstLabel">機構</label><input id="aInst" autocomplete="off" maxlength="40"></div>
+        <div class="field"><label for="aCur">幣別</label>
+          <select id="aCur"><option value="TWD">新台幣</option><option value="USD">美元</option><option value="JPY">日圓</option><option value="CNY">人民幣</option><option value="AUD">澳幣</option><option value="EUR">歐元</option><option value="HKD">港幣</option><option value="GBP">英鎊</option></select>
+        </div>
+      </div>
+      <div class="f2" id="aUnlFields">
+        <div class="field"><label for="aShares">股數</label><input id="aShares" inputmode="decimal" autocomplete="off"><div class="err hidden" id="eAShares"></div></div>
+        <div class="field"><label for="aPrice">每股參考價</label><input id="aPrice" inputmode="decimal" autocomplete="off"><div class="err hidden" id="eAPrice"></div></div>
+      </div>
+      <div class="field" id="aAmountField"><label for="aAmount" id="aAmountLabel">金額</label><input id="aAmount" inputmode="decimal" autocomplete="off"><div class="hint" id="aAmountHint"></div><div class="err hidden" id="eAAmount"></div></div>
+      <div class="field" id="aCostField"><label for="aCost" id="aCostLabel">成本</label><input id="aCost" inputmode="decimal" autocomplete="off"><div class="hint" id="aCostHint"></div><div class="err hidden" id="eACost"></div></div>
+      <div class="f2">
+        <div class="field" id="aRateField"><label for="aRate">年利率（%）</label><input id="aRate" inputmode="decimal" autocomplete="off"><div class="err hidden" id="eARate"></div></div>
+        <div class="field" id="aMonthlyField"><label for="aMonthly">每月還款</label><input id="aMonthly" inputmode="decimal" autocomplete="off"></div>
+      </div>
+      <div class="field"><label for="aUpdated">金額更新日期</label><input id="aUpdated" type="date"><div class="hint">改了金額會自動帶入今天；照舊通知書補登時可以改成通知書上的日期。</div></div>
+      <div class="field"><label for="aNote">備註</label><input id="aNote" autocomplete="off" maxlength="200"></div>
+      <div class="err hidden" id="eAForm"></div>
+    </div>
+    <div class="dlg-foot">
+      <button type="button" class="btn danger hidden" id="btnADelete">刪除</button>
+      <button type="button" class="btn" data-close>取消</button>
+      <button type="submit" class="btn primary" id="btnASave">儲存</button>
+    </div>
+  </form>
+</dialog>
 
 <!-- 新增／編輯 -->
 <dialog id="dlgEdit" aria-labelledby="editTitle">
@@ -480,6 +574,9 @@ let news = LS.get('news', null);      // {news, days, fetchedAt}
 let lastFx = LS.get('fx', null);      // 最近一次成功的匯率
 let events = LS.get('events', null);  // {events, sources, today, fetchedAt}
 let hist = LS.get('hist', null);      // {rows:[...], fetchedAt}
+let histMetric = LS.get('histMetric', 'stock');   // stock：持股市值；net：淨資產
+let assets = LS.get('assets', null);  // {assets:[...], fx:{TWD:1,...}, fetchedAt}
+let loadingAssets = false, assetsError = null, lastAssetsAt = 0;
 let histRange = LS.get('histRange', '3m'), histAll = false, loadingHist = false, histError = null, lastHistAt = 0, histHover = null;
 let spark = LS.get('spark', null);    // {spark: {code: {points, ref, start, end}}, fetchedAt}
 let loadingSpark = false, lastSparkAt = 0, sparkKey = '';
@@ -780,7 +877,7 @@ function renderNews() {
   const mk = (key, label, n) => el('button', { class: 'chip', type: 'button', 'aria-pressed': String(newsFilter === key), onclick: () => { newsFilter = key; renderNews(); } }, label + (n != null ? ' ' + n : ''));
   chips.append(mk('all', '全部', null));
   data.holdings.forEach(h => { const q = data.quotes[h.code]; chips.append(mk(h.code, h.name || (q && !q.error && shortName(q.name)) || h.code, counts[h.code] || 0)); });
-  $('#newsCount').textContent = items.length ? '（' + items.length + '）' : '';
+  $('#newsCount').textContent = items.length ? String(items.length) : '';
   $('#newsUpdated').textContent = loadingNews ? '更新中…' : news && news.fetchedAt ? '更新於 ' + fmtTime(news.fetchedAt) : '';
   if (!news) { list.append(el('div', { class: 'empty' }, el('p', null, loadingNews ? '正在整理新聞…' : (newsError ? newsError : '尚未讀取新聞')))); return; }
   const shown = newsFilter === 'all' ? items : items.filter(i => i.code === newsFilter);
@@ -952,10 +1049,19 @@ function chgEl(amount, pctv, opts) {
 }
 const wk = (iso) => '日一二三四五六'[new Date(iso + 'T00:00:00Z').getUTCDay()];
 const isoMs = (iso) => Date.parse(iso + 'T00:00:00Z');
+/** 目前看的是持股市值還是淨資產 */
+function metric() {
+  if (histMetric === 'net') return {
+    v: r => r.net, d: r => r.dNet,
+    p: r => r.dNet != null && r.net != null && r.net - r.dNet ? r.dNet / Math.abs(r.net - r.dNet) : null,
+    label: '淨資產', cost: false };
+  return { v: r => r.total, d: r => r.dMv, p: r => r.dPct, label: '總市值', cost: true };
+}
+const fmtSigned0 = (v) => (v < 0 ? '−' : '') + NF0.format(Math.abs(Math.round(v)));
+function histAllRows() { const m = metric(); return hist && hist.rows ? hist.rows.filter(r => m.v(r) != null) : []; }
 function histRows() {
-  if (!hist || !hist.rows.length) return [];
-  const rows = hist.rows;
-  if (histRange === 'all') return rows;
+  const rows = histAllRows();
+  if (!rows.length || histRange === 'all') return rows;
   const days = { '1m': 31, '3m': 92, '6m': 183, '1y': 366 }[histRange] || 92;
   const lastMs = isoMs(rows[rows.length - 1].date);
   return rows.filter(r => lastMs - isoMs(r.date) < days * 864e5);
@@ -963,75 +1069,69 @@ function histRows() {
 function renderHist() {
   const list = $('#histList'), box = $('#histBox'), totalEl = $('#histTotal'), sub = $('#histSub');
   document.querySelectorAll('#histRanges button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.r === histRange)));
-  list.replaceChildren(); box.replaceChildren(); sub.replaceChildren();
+  document.querySelectorAll('#histMetric button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.m === histMetric)));
+  list.replaceChildren(); box.replaceChildren(); sub.replaceChildren(); $('#histLegend').replaceChildren();
   $('#btnExport').disabled = !(hist && hist.rows.length);
   const msg = (t) => { box.append(el('div', { class: 'ch-msg' }, t)); totalEl.textContent = '—'; };
   if (!cfg.url) { msg('設定連線後會顯示每日市值'); return; }
   if (histError && !hist) { msg(histError); return; }
   if (!hist) { msg(loadingHist ? '載入中…' : '尚未讀取'); return; }
   if (histError) list.append(el('div', { class: 'notice err', style: 'margin:10px 14px' }, histError));
-  const all = hist.rows;
+  const all = histAllRows();
   if (!all.length) {
     const tp = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Taipei', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date());
-    msg(tp >= '13:31' ? '今天的紀錄會在幾分鐘內寫入，請稍後重新整理。' : '還沒有紀錄。今天 13:30 收盤後會記下第一筆。');
+    if (histMetric === 'net' && hist.rows.length) msg('淨資產從更新後端後的第一次 13:30 紀錄開始累積。');
+    else msg(tp >= '13:31' ? '今天的紀錄會在幾分鐘內寫入，請稍後重新整理。' : '還沒有紀錄。今天 13:30 收盤後會記下第一筆。');
     return;
   }
   const rows = histRows();
-  const last = all[all.length - 1];
-  const hov = histHover != null ? rows[histHover] : null;
-  const show = hov || last;
-  totalEl.replaceChildren(el('small', null, 'NT$'), NF0.format(show.total));
-  sub.append(el('span', null, (+show.date.slice(5, 7)) + '/' + (+show.date.slice(8)) + '（' + wk(show.date) + '）' + show.time + ' 紀錄'),
-    el('span', null, '與前日 ', chgEl(show.dMv, show.dPct, { first: show === all[0] })));
-  if (!hov && rows.length > 1) {
-    const f = rows[0];
-    sub.append(el('span', null, { '1m': '近 1 月', '3m': '近 3 月', '6m': '近 6 月', '1y': '近 1 年', all: '全部期間' }[histRange] + ' ', chgEl(last.total - f.total, f.total ? (last.total - f.total) / f.total : null)));
-  }
+  renderHistHead(rows);
   drawHist(box, rows);
+  const m = metric();
   // 每日列表（新的在上）
   const desc = all.slice().reverse();
   const shown = histAll ? desc : desc.slice(0, 10);
-  shown.forEach((r, i) => {
-    const isFirst = r === all[0];
+  shown.forEach(r => {
     list.append(el('div', { class: 'hrec' },
       el('span', { class: 'd' }, (+r.date.slice(5, 7)) + '/' + (+r.date.slice(8)), el('small', null, '週' + wk(r.date))),
-      el('span', { class: 'v' }, NF0.format(r.total)),
-      el('span', { class: 'c' }, chgEl(r.dMv, r.dPct, { first: isFirst })),
+      el('span', { class: 'v' }, fmtSigned0(m.v(r))),
+      el('span', { class: 'c' }, chgEl(m.d(r), m.p(r), { first: r === all[0] })),
       r.note ? el('span', { class: 'n' }, r.note) : null));
   });
   if (desc.length > 10) list.append(el('button', { class: 'hist-more', type: 'button', onclick: () => { histAll = !histAll; renderHist(); } }, histAll ? '只顯示最近 10 筆' : '顯示全部 ' + desc.length + ' 筆'));
 }
 function drawHist(box, rows) {
   if (!rows.length) return;
+  const m = metric();
   const W = Math.max(240, Math.round(box.clientWidth || 320)), H = Math.round(box.clientHeight || 200);
   const padT = 10, padB = 22, padL = 2, padR = 62;
   const pw = W - padL - padR, ph = H - padT - padB, n = rows.length;
   const t0 = isoMs(rows[0].date), t1 = isoMs(rows[n - 1].date);
   const X = (i) => n === 1 ? padL + pw / 2 : padL + pw * (isoMs(rows[i].date) - t0) / (t1 - t0 || 1);
-  // Y 軸只依市值決定（成本差很多時才不會把市值的起伏壓平）；成本線在範圍內才畫
-  const vals = rows.map(r => r.total);
+  // Y 軸只依數值本身決定（成本差很多時才不會把起伏壓平）；成本線在範圍內才畫
+  const vals = rows.map(m.v);
   let lo = Math.min(...vals), hi = Math.max(...vals);
-  const span = hi - lo || Math.max(hi * 0.02, 1);
+  const span = hi - lo || Math.max(Math.abs(hi) * 0.02, 1);
   lo -= span * 0.1; hi += span * 0.1;
-  const lastCost = rows[n - 1].cost;
-  const costIn = rows.some(r => r.cost > 0 && r.cost >= lo && r.cost <= hi);
-  $('#histLegend').replaceChildren(el('span', null, el('i'), '總市值'),
-    lastCost > 0 ? el('span', null, el('i', { class: 'cost' }), costIn ? '總成本' : '總成本 ' + NF0.format(lastCost) + '（低於圖的範圍）') : '');
+  const lastCost = m.cost ? rows[n - 1].cost : null;
+  const costIn = m.cost && rows.some(r => r.cost > 0 && r.cost >= lo && r.cost <= hi);
+  $('#histLegend').replaceChildren(el('span', null, el('i'), m.label),
+    lastCost > 0 ? el('span', null, el('i', { class: 'cost' }), costIn ? '總成本' : '總成本 ' + NF0.format(lastCost) + '（不在圖的範圍內）') : '');
   const Y = (v) => padT + ph * (1 - (v - lo) / (hi - lo));
-  const svg = sv('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': '每日總市值趨勢：' + rows.map(r => r.date + ' ' + NF0.format(r.total)).slice(-5).join('，') });
-  const fmtAxis = (v) => v >= 1e8 ? (v / 1e8).toFixed(2) + '億' : v >= 1e4 ? NF0.format(Math.round(v / 1e4)) + '萬' : NF0.format(Math.round(v));
+  const svg = sv('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': '每日' + m.label + '趨勢：' + rows.map(r => r.date + ' ' + fmtSigned0(m.v(r))).slice(-5).join('，') });
+  const fmtAxis = (v) => { const a = Math.abs(v), sg = v < 0 ? '−' : ''; return sg + (a >= 1e8 ? (a / 1e8).toFixed(2) + '億' : a >= 1e4 ? NF0.format(Math.round(a / 1e4)) + '萬' : NF0.format(Math.round(a))); };
   [hi - span * 0.1, lo + span * 0.1].forEach(v => {
     svg.append(sv('line', { class: 'ch-grid', x1: padL, x2: padL + pw, y1: Y(v).toFixed(1), y2: Y(v).toFixed(1) }));
     const t = sv('text', { class: 'ch-axis', x: W - 2, y: (Y(v) + 4).toFixed(1), 'text-anchor': 'end' }); t.textContent = fmtAxis(v); svg.append(t);
   });
-  // 總成本（虛線）
-  const costPts = rows.map((r, i) => r.cost > 0 && r.cost >= lo && r.cost <= hi ? [X(i), Y(r.cost)] : null).filter(Boolean);
-  if (costPts.length > 1) svg.append(sv('path', { class: 'ch-ref', d: costPts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join('') }));
-  const line = rows.map((r, i) => (i ? 'L' : 'M') + X(i).toFixed(1) + ' ' + Y(r.total).toFixed(1)).join('');
-  if (n > 1) {
-    const path = sv('path', { class: 'ch-line', d: line }); path.style.stroke = 'var(--accent)'; svg.append(path);
+  if (lo < 0 && hi > 0) svg.append(sv('line', { class: 'ch-ref', x1: padL, x2: padL + pw, y1: Y(0).toFixed(1), y2: Y(0).toFixed(1) }));
+  if (costIn) {
+    const costPts = rows.map((r, i) => r.cost > 0 && r.cost >= lo && r.cost <= hi ? [X(i), Y(r.cost)] : null).filter(Boolean);
+    if (costPts.length > 1) svg.append(sv('path', { class: 'ch-ref', d: costPts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join('') }));
   }
-  rows.forEach((r, i) => { if (n <= 31 || i === n - 1) { const c = sv('circle', { cx: X(i).toFixed(1), cy: Y(r.total).toFixed(1), r: i === n - 1 ? 4 : 2.5 }); c.style.fill = 'var(--accent)'; svg.append(c); } });
+  const line = rows.map((r, i) => (i ? 'L' : 'M') + X(i).toFixed(1) + ' ' + Y(m.v(r)).toFixed(1)).join('');
+  if (n > 1) { const path = sv('path', { class: 'ch-line', d: line }); path.style.stroke = 'var(--accent)'; svg.append(path); }
+  rows.forEach((r, i) => { if (n <= 31 || i === n - 1) { const c = sv('circle', { cx: X(i).toFixed(1), cy: Y(m.v(r)).toFixed(1), r: i === n - 1 ? 4 : 2.5 }); c.style.fill = 'var(--accent)'; svg.append(c); } });
   const xl = n === 1 ? [[padL + pw / 2, rows[0].date, 'middle']] : [[padL, rows[0].date, 'start'], [padL + pw, rows[n - 1].date, 'end']];
   xl.forEach(([x, iso, a]) => { const t = sv('text', { class: 'ch-axis', x: x.toFixed(1), y: H - 5, 'text-anchor': a }); t.textContent = (+iso.slice(5, 7)) + '/' + (+iso.slice(8)); svg.append(t); });
   const cross = sv('line', { class: 'ch-cross', y1: padT, y2: padT + ph, visibility: 'hidden' }); svg.append(cross);
@@ -1048,19 +1148,20 @@ function drawHist(box, rows) {
   svg.addEventListener('pointerup', (ev) => { if (ev.pointerType !== 'mouse') leave(); });
   box.append(svg);
 }
-/** 滑過趨勢圖時只更新上方數字（不重畫圖，十字線才不會跳掉） */
+/** 上方數字（滑過趨勢圖時只更新這裡，不重畫圖，十字線才不會跳掉） */
 function renderHistHead(rows) {
-  const all = hist.rows, last = all[all.length - 1];
-  const show = histHover != null ? rows[histHover] : last;
-  $('#histTotal').replaceChildren(el('small', null, 'NT$'), NF0.format(show.total));
+  const m = metric(), all = histAllRows(), last = all[all.length - 1];
+  const show = histHover != null && rows[histHover] ? rows[histHover] : last;
+  $('#histTotal').replaceChildren(el('small', null, 'NT$'), fmtSigned0(m.v(show)));
   const sub = $('#histSub'); sub.replaceChildren();
   sub.append(el('span', null, (+show.date.slice(5, 7)) + '/' + (+show.date.slice(8)) + '（' + wk(show.date) + '）' + show.time + ' 紀錄'),
-    el('span', null, '與前日 ', chgEl(show.dMv, show.dPct, { first: show === all[0] })));
+    el('span', null, '與前日 ', chgEl(m.d(show), m.p(show), { first: show === all[0] })));
   if (histHover == null && rows.length > 1) {
-    const f = rows[0];
-    sub.append(el('span', null, { '1m': '近 1 月', '3m': '近 3 月', '6m': '近 6 月', '1y': '近 1 年', all: '全部期間' }[histRange] + ' ', chgEl(last.total - f.total, f.total ? (last.total - f.total) / f.total : null)));
+    const f = rows[0], a = m.v(f), b = m.v(last);
+    sub.append(el('span', null, { '1m': '近 1 月', '3m': '近 3 月', '6m': '近 6 月', '1y': '近 1 年', all: '全部期間' }[histRange] + ' ', chgEl(b - a, a ? (b - a) / Math.abs(a) : null)));
   }
 }
+document.querySelectorAll('#histMetric button').forEach(b => b.addEventListener('click', () => { histMetric = b.dataset.m; LS.set('histMetric', histMetric); histHover = null; renderHist(); }));
 document.querySelectorAll('#histRanges button').forEach(b => b.addEventListener('click', () => { histRange = b.dataset.r; LS.set('histRange', histRange); histHover = null; renderHist(); }));
 window.addEventListener('resize', () => { if (!$('#panel-hist').classList.contains('hidden') || window.innerWidth >= 960) renderHist(); });
 
@@ -1125,7 +1226,7 @@ function stylesXml(upColor, dnColor) {
     + '<xf numFmtId="168" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>'
     + '</cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>';
 }
-function buildXlsx(rows, details) {
+function buildXlsx(rows, details, assetList, assetFx) {
   const sst = [], sstIdx = new Map();
   const si = (v) => { v = String(v); if (!sstIdx.has(v)) { sstIdx.set(v, sst.length); sst.push(v); } return sstIdx.get(v); };
   const cell = (ref, v, style) => {
@@ -1145,63 +1246,94 @@ function buildXlsx(rows, details) {
       + (extra || '') + '</worksheet>';
     return x;
   };
-  const H1 = ['日期', '紀錄時間', '總市值', '台股市值', '美股市值(台幣)', '美股市值(美元)', '美元匯率', '總成本', '未實現損益', '報酬率', '與前日市值變化', '與前日變化%', '與前日損益變化', '持股檔數', '備註'];
+  const H1 = ['日期', '紀錄時間', '總市值', '台股市值', '美股市值(台幣)', '美股市值(美元)', '美元匯率', '總成本', '未實現損益', '報酬率', '與前日市值變化', '與前日變化%', '與前日損益變化', '持股檔數', '備註',
+    '未上市股票', '保險', '存款', '貸款', '淨資產', '與前日淨資產變化'];
   const d1 = rows.map(r => [[excelDate(r.date), XS.date], [r.time], [r.total, XS.int], [r.tw, XS.int], [r.usT, XS.int], [r.usUsd, XS.dec2], [r.fx, XS.fx],
     [r.cost, XS.int], [r.pnl, sign(r.pnl, XS.intUp, XS.intDn, XS.int)], [r.ret, sign(r.ret, XS.retUp, XS.retDn, XS.pct)],
     [r.dMv, sign(r.dMv, XS.chgUp, XS.chgDn, XS.chgFlat)], [r.dPct, sign(r.dPct, XS.pctUp, XS.pctDn, XS.pctFlat)], [r.dPnl, sign(r.dPnl, XS.chgUp, XS.chgDn, XS.chgFlat)],
-    [r.count, XS.int], [r.note]]);
+    [r.count, XS.int], [r.note], [r.unl, XS.int], [r.ins, XS.int], [r.dep, XS.int], [r.loan != null ? -r.loan : null, XS.int], [r.net, XS.int], [r.dNet, sign(r.dNet, XS.chgUp, XS.chgDn, XS.chgFlat)]]);
   const H2 = ['日期', '代號', '名稱', '市場', '股數', '價格', '幣別', '市值(原幣)', '市值(台幣)', '成本(台幣)', '未實現損益(台幣)', '報價時間', '備註'];
   const num = (v) => v === '' || v == null ? null : Number(v);
   const d2 = (details || []).map(r => [[excelDate(String(r[0])), XS.date], [String(r[1])], [r[3] === '美股' ? shortName(r[2]) : r[2]], [r[3]], [num(r[4]), Number.isInteger(num(r[4])) ? XS.int : XS.frac], [num(r[5]), XS.dec2], [r[6]],
     [num(r[7]), XS.dec2], [num(r[8]), XS.int], [num(r[9]), XS.int], [num(r[10]), sign(num(r[10]), XS.intUp, XS.intDn, XS.int)], [r[11]], [r[12]]]);
   const n = rows.length, S = "'每日市值'";
-  // 原生折線圖：總市值（實線）＋總成本（虛線），附上快取數值，打開就看得到
+  // 原生折線圖（放在「趨勢圖」工作表，資料來自「每日市值」），附上快取數值，打開就看得到
   const cache = (vals, fmt) => `<c:numCache><c:formatCode>${fmt}</c:formatCode><c:ptCount val="${vals.length}"/>` + vals.map((v, i) => v == null ? '' : `<c:pt idx="${i}"><c:v>${v}</c:v></c:pt>`).join('') + '</c:numCache>';
   const ser = (idx, col, title, vals, color, dash) => `<c:ser><c:idx val="${idx}"/><c:order val="${idx}"/><c:tx><c:strRef><c:f>${S}!$${col}$1</c:f><c:strCache><c:ptCount val="1"/><c:pt idx="0"><c:v>${title}</c:v></c:pt></c:strCache></c:strRef></c:tx>`
     + `<c:spPr><a:ln w="${dash ? 19050 : 28575}" cap="rnd"><a:solidFill><a:srgbClr val="${color}"/></a:solidFill>${dash ? '<a:prstDash val="dash"/>' : ''}<a:round/></a:ln></c:spPr><c:marker><c:symbol val="${n <= 31 && !dash ? 'circle' : 'none'}"/>${n <= 31 && !dash ? `<c:size val="4"/><c:spPr><a:solidFill><a:srgbClr val="${color}"/></a:solidFill><a:ln><a:noFill/></a:ln></c:spPr>` : ''}</c:marker>`
     + `<c:cat><c:numRef><c:f>${S}!$A$2:$A$${n + 1}</c:f>${cache(rows.map(r => excelDate(r.date)), 'yyyy/mm/dd')}</c:numRef></c:cat>`
     + `<c:val><c:numRef><c:f>${S}!$${col}$2:$${col}$${n + 1}</c:f>${cache(vals, '#,##0')}</c:numRef></c:val><c:smooth val="0"/></c:ser>`;
-  const yv = rows.map(r => r.total);
-  const yLo = Math.min(...yv), yHi = Math.max(...yv), ySpan = Math.max(yHi - yLo, yHi * 0.02, 1);
-  const step = Math.pow(10, Math.floor(Math.log10(ySpan / 4)));
-  const yMin = Math.max(0, Math.floor((yLo - ySpan * 0.1) / step) * step), yMax = Math.ceil((yHi + ySpan * 0.1) / step) * step;
-  const chart = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
-    + '<c:roundedCorners val="0"/><c:chart><c:title><c:tx><c:rich><a:bodyPr/><a:lstStyle/><a:p><a:pPr><a:defRPr sz="1400" b="1"/></a:pPr><a:r><a:rPr lang="zh-TW" sz="1400" b="1"/><a:t>每日總市值趨勢（台幣，每日 13:30）</a:t></a:r></a:p></c:rich></c:tx><c:overlay val="0"/></c:title>'
-    + '<c:autoTitleDeleted val="0"/><c:plotArea><c:layout/><c:lineChart><c:grouping val="standard"/><c:varyColors val="0"/>'
-    + ser(0, 'C', '總市值', rows.map(r => r.total), '2B4C8C', false) + (rows.some(r => r.cost >= yMin && r.cost <= yMax) ? ser(1, 'H', '總成本', rows.map(r => r.cost || null), '8A93A6', true) : '')
-    + '<c:marker val="1"/><c:axId val="50010001"/><c:axId val="50010002"/></c:lineChart>'
-    + '<c:catAx><c:axId val="50010001"/><c:scaling><c:orientation val="minMax"/></c:scaling><c:delete val="0"/><c:axPos val="b"/><c:numFmt formatCode="m/d" sourceLinked="0"/><c:majorTickMark val="out"/><c:minorTickMark val="none"/><c:tickLblPos val="low"/><c:crossAx val="50010002"/><c:crosses val="autoZero"/><c:auto val="1"/><c:lblAlgn val="ctr"/><c:lblOffset val="100"/><c:noMultiLvlLbl val="0"/></c:catAx>'
-    + `<c:valAx><c:axId val="50010002"/><c:scaling><c:orientation val="minMax"/><c:max val="${yMax}"/><c:min val="${yMin}"/></c:scaling>`
-    + '<c:delete val="0"/><c:axPos val="l"/><c:majorGridlines><c:spPr><a:ln w="6350"><a:solidFill><a:srgbClr val="E2E6EC"/></a:solidFill></a:ln></c:spPr></c:majorGridlines><c:numFmt formatCode="#,##0" sourceLinked="0"/><c:majorTickMark val="none"/><c:minorTickMark val="none"/><c:tickLblPos val="nextTo"/><c:crossAx val="50010001"/><c:crosses val="autoZero"/><c:crossBetween val="between"/></c:valAx>'
-    + '</c:plotArea><c:legend><c:legendPos val="b"/><c:overlay val="0"/></c:legend><c:plotVisOnly val="1"/><c:dispBlanksAs val="gap"/></c:chart></c:chartSpace>';
-  const drawing = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">'
-    + '<xdr:twoCellAnchor editAs="oneCell"><xdr:from><xdr:col>15</xdr:col><xdr:colOff>190500</xdr:colOff><xdr:row>1</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from><xdr:to><xdr:col>24</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>22</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:to>'
-    + '<xdr:graphicFrame macro=""><xdr:nvGraphicFramePr><xdr:cNvPr id="2" name="每日總市值趨勢"/><xdr:cNvGraphicFramePr/></xdr:nvGraphicFramePr><xdr:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/></xdr:xfrm>'
-    + '<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/chart"><c:chart xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:id="rId1"/></a:graphicData></a:graphic></xdr:graphicFrame><xdr:clientData/></xdr:twoCellAnchor></xdr:wsDr>';
-  const sheet1 = sheet(H1, d1, [12, 9, 13, 13, 14, 14, 9, 13, 13, 9, 15, 12, 15, 9, 34], n ? '<drawing r:id="rId1"/>' : '');
+  const chartXml = (title, main, extraSer) => {
+    const yv = main.vals.filter(v => v != null);
+    const yLo = Math.min(...yv), yHi = Math.max(...yv), ySpan = Math.max(yHi - yLo, Math.abs(yHi) * 0.02, 1);
+    const step = Math.pow(10, Math.floor(Math.log10(ySpan / 4)));
+    let yMin = Math.floor((yLo - ySpan * 0.1) / step) * step; if (yLo >= 0) yMin = Math.max(0, yMin);
+    const yMax = Math.ceil((yHi + ySpan * 0.1) / step) * step;
+    const ex = extraSer && extraSer.vals.some(v => v != null && v >= yMin && v <= yMax) ? ser(1, extraSer.col, extraSer.title, extraSer.vals, '8A93A6', true) : '';
+    return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+      + `<c:roundedCorners val="0"/><c:chart><c:title><c:tx><c:rich><a:bodyPr/><a:lstStyle/><a:p><a:pPr><a:defRPr sz="1400" b="1"/></a:pPr><a:r><a:rPr lang="zh-TW" sz="1400" b="1"/><a:t>${XML_ESC(title)}</a:t></a:r></a:p></c:rich></c:tx><c:overlay val="0"/></c:title>`
+      + '<c:autoTitleDeleted val="0"/><c:plotArea><c:layout/><c:lineChart><c:grouping val="standard"/><c:varyColors val="0"/>'
+      + ser(0, main.col, main.title, main.vals, main.color, false) + ex
+      + '<c:marker val="1"/><c:axId val="50010001"/><c:axId val="50010002"/></c:lineChart>'
+      + '<c:catAx><c:axId val="50010001"/><c:scaling><c:orientation val="minMax"/></c:scaling><c:delete val="0"/><c:axPos val="b"/><c:numFmt formatCode="m/d" sourceLinked="0"/><c:majorTickMark val="out"/><c:minorTickMark val="none"/><c:tickLblPos val="low"/><c:crossAx val="50010002"/><c:crosses val="autoZero"/><c:auto val="1"/><c:lblAlgn val="ctr"/><c:lblOffset val="100"/><c:noMultiLvlLbl val="0"/></c:catAx>'
+      + `<c:valAx><c:axId val="50010002"/><c:scaling><c:orientation val="minMax"/><c:max val="${yMax}"/><c:min val="${yMin}"/></c:scaling>`
+      + '<c:delete val="0"/><c:axPos val="l"/><c:majorGridlines><c:spPr><a:ln w="6350"><a:solidFill><a:srgbClr val="E2E6EC"/></a:solidFill></a:ln></c:spPr></c:majorGridlines><c:numFmt formatCode="#,##0" sourceLinked="0"/><c:majorTickMark val="none"/><c:minorTickMark val="none"/><c:tickLblPos val="nextTo"/><c:crossAx val="50010001"/><c:crosses val="autoZero"/><c:crossBetween val="between"/></c:valAx>'
+      + '</c:plotArea><c:legend><c:legendPos val="b"/><c:overlay val="0"/></c:legend><c:plotVisOnly val="1"/><c:dispBlanksAs val="gap"/></c:chart></c:chartSpace>';
+  };
+  const charts = [];
+  if (n) charts.push(chartXml('每日持股總市值（台幣，每日 13:30）', { col: 'C', title: '總市值', vals: rows.map(r => r.total), color: '2B4C8C' }, { col: 'H', title: '總成本', vals: rows.map(r => r.cost || null) }));
+  if (rows.some(r => r.net != null)) charts.push(chartXml('每日淨資產（台幣，每日 13:30）', { col: 'T', title: '淨資產', vals: rows.map(r => r.net), color: '0F7C8C' }));
+  const anchor = (i) => `<xdr:twoCellAnchor editAs="oneCell"><xdr:from><xdr:col>0</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>${2 + i * 23}</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from><xdr:to><xdr:col>10</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>${24 + i * 23}</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:to>`
+    + `<xdr:graphicFrame macro=""><xdr:nvGraphicFramePr><xdr:cNvPr id="${2 + i}" name="趨勢圖${i + 1}"/><xdr:cNvGraphicFramePr/></xdr:nvGraphicFramePr><xdr:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/></xdr:xfrm>`
+    + `<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/chart"><c:chart xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:id="rId${i + 1}"/></a:graphicData></a:graphic></xdr:graphicFrame><xdr:clientData/></xdr:twoCellAnchor>`;
+  const drawing = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">' + charts.map((c, i) => anchor(i)).join('') + '</xdr:wsDr>';
+  const sheet1 = sheet(H1, d1, [12, 9, 13, 13, 14, 14, 9, 13, 13, 9, 15, 12, 15, 9, 30, 12, 12, 12, 12, 13, 16]);
+  const sheetChart = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+    + '<sheetPr><pageSetUpPr fitToPage="1"/></sheetPr><sheetViews><sheetView workbookViewId="0"/></sheetViews><sheetFormatPr defaultRowHeight="16"/><sheetData>'
+    + `<row r="1"><c r="A1" t="s"><v>${si(charts.length ? '趨勢圖（資料來自「每日市值」工作表）' : '還沒有紀錄')}</v></c></row></sheetData>`
+    + '<pageMargins left="0.4" right="0.4" top="0.5" bottom="0.5" header="0.3" footer="0.3"/><pageSetup paperSize="9" orientation="portrait" fitToWidth="1" fitToHeight="0"/>'
+    + (charts.length ? '<drawing r:id="rId1"/>' : '') + '</worksheet>';
   const sheet2 = sheet(H2, d2, [12, 8, 16, 7, 10, 11, 7, 14, 13, 13, 15, 17, 22]);
+  // 其他資產（匯出當下的清單）
+  const AH = ['類別', '名稱', '機構', '幣別', '金額(原幣)', '股數', '每股價格', '成本(原幣)', '匯率', '台幣價值', '帳面損益(台幣)', '年利率(%)', '每月還款', '更新日期', '備註'];
+  const order = { '未上市': 1, '保險': 2, '存款': 3, '貸款': 4 };
+  const al = (assetList || []).slice().sort((a, b) => (order[a.type] || 9) - (order[b.type] || 9));
+  const ad = al.map(a => {
+    const v = a.type === '未上市' && a.shares != null && a.price != null ? a.shares * a.price : (a.amount || 0);
+    const rate = a.cur === 'TWD' ? 1 : (assetFx || {})[a.cur] || null;
+    const sg = a.type === '貸款' ? -1 : 1;
+    const gain = rate && a.cost > 0 && (a.type === '未上市' || a.type === '保險') ? Math.round((v - a.cost) * rate) : null;
+    return [[a.type === '未上市' ? '未上市股票' : a.type], [a.name], [a.inst || null], [a.cur], [sg * v, XS.dec2], [a.shares, a.shares != null && Number.isInteger(a.shares) ? XS.int : XS.frac], [a.price, XS.dec2],
+      [a.cost, XS.dec2], [a.cur === 'TWD' ? null : rate, XS.fx], [rate ? Math.round(sg * v * rate) : null, XS.int], [gain, sign(gain, XS.intUp, XS.intDn, XS.int)],
+      [a.rate, XS.gen], [a.monthly, XS.int], [a.updated ? excelDate(a.updated) : null, XS.date], [a.note || null]];
+  });
+  const sheet3 = sheet(AH, ad, [12, 20, 14, 7, 14, 10, 10, 13, 9, 14, 15, 10, 11, 12, 24]);
   const now = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
+  const ws = [['每日市值', sheet1], ['趨勢圖', sheetChart], ['市值明細', sheet2], ['其他資產', sheet3]];
+  const ct = 'application/vnd.openxmlformats-officedocument.';
   const files = [
     ['[Content_Types].xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/>'
-      + '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/worksheets/sheet2.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
-      + '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/><Override PartName="/xl/sharedStrings.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml"/>'
-      + (n ? '<Override PartName="/xl/drawings/drawing1.xml" ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"/><Override PartName="/xl/charts/chart1.xml" ContentType="application/vnd.openxmlformats-officedocument.drawingml.chart+xml"/>' : '')
-      + '<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/><Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/></Types>'],
+      + `<Override PartName="/xl/workbook.xml" ContentType="${ct}spreadsheetml.sheet.main+xml"/>` + ws.map((w, i) => `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="${ct}spreadsheetml.worksheet+xml"/>`).join('')
+      + `<Override PartName="/xl/styles.xml" ContentType="${ct}spreadsheetml.styles+xml"/><Override PartName="/xl/sharedStrings.xml" ContentType="${ct}spreadsheetml.sharedStrings+xml"/>`
+      + (charts.length ? `<Override PartName="/xl/drawings/drawing1.xml" ContentType="${ct}drawing+xml"/>` + charts.map((c, i) => `<Override PartName="/xl/charts/chart${i + 1}.xml" ContentType="${ct}drawingml.chart+xml"/>`).join('') : '')
+      + `<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/><Override PartName="/docProps/app.xml" ContentType="${ct}extended-properties+xml"/></Types>`],
     ['_rels/.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/></Relationships>'],
-    ['docProps/core.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><dc:title>持股每日市值</dc:title><dc:creator>持股新聞</dc:creator><dcterms:created xsi:type="dcterms:W3CDTF">${now}</dcterms:created><dcterms:modified xsi:type="dcterms:W3CDTF">${now}</dcterms:modified></cp:coreProperties>`],
+    ['docProps/core.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><dc:title>持股每日市值與資產</dc:title><dc:creator>持股新聞</dc:creator><dcterms:created xsi:type="dcterms:W3CDTF">${now}</dcterms:created><dcterms:modified xsi:type="dcterms:W3CDTF">${now}</dcterms:modified></cp:coreProperties>`],
     ['docProps/app.xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"><Application>持股新聞</Application></Properties>'],
-    ['xl/workbook.xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><bookViews><workbookView/></bookViews><sheets><sheet name="每日市值" sheetId="1" r:id="rId1"/><sheet name="市值明細" sheetId="2" r:id="rId2"/></sheets>'
-      + `<definedNames><definedName name="_xlnm._FilterDatabase" localSheetId="0" hidden="1">${S}!$A$1:$O$${Math.max(2, n + 1)}</definedName><definedName name="_xlnm._FilterDatabase" localSheetId="1" hidden="1">'市值明細'!$A$1:$M$${Math.max(2, d2.length + 1)}</definedName></definedNames></workbook>`],
-    ['xl/_rels/workbook.xml.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/><Relationship Id="rId4" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings" Target="sharedStrings.xml"/></Relationships>'],
+    ['xl/workbook.xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><bookViews><workbookView/></bookViews><sheets>'
+      + ws.map((w, i) => `<sheet name="${w[0]}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join('') + '</sheets>'
+      + `<definedNames><definedName name="_xlnm._FilterDatabase" localSheetId="0" hidden="1">${S}!$A$1:$U$${Math.max(2, n + 1)}</definedName><definedName name="_xlnm._FilterDatabase" localSheetId="2" hidden="1">'市值明細'!$A$1:$M$${Math.max(2, d2.length + 1)}</definedName><definedName name="_xlnm._FilterDatabase" localSheetId="3" hidden="1">'其他資產'!$A$1:$O$${Math.max(2, ad.length + 1)}</definedName></definedNames></workbook>`],
+    ['xl/_rels/workbook.xml.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+      + ws.map((w, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join('')
+      + `<Relationship Id="rId${ws.length + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/><Relationship Id="rId${ws.length + 2}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings" Target="sharedStrings.xml"/></Relationships>`],
     ['xl/styles.xml', stylesXml('D23B33', '178A4C')],
-    ['xl/worksheets/sheet1.xml', sheet1],
-    ['xl/worksheets/sheet2.xml', sheet2],
-  ];
-  if (n) files.push(
-    ['xl/worksheets/_rels/sheet1.xml.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" Target="../drawings/drawing1.xml"/></Relationships>'],
-    ['xl/drawings/drawing1.xml', drawing],
-    ['xl/drawings/_rels/drawing1.xml.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart" Target="../charts/chart1.xml"/></Relationships>'],
-    ['xl/charts/chart1.xml', chart]);
+  ].concat(ws.map((w, i) => ['xl/worksheets/sheet' + (i + 1) + '.xml', w[1]]));
+  if (charts.length) {
+    files.push(['xl/worksheets/_rels/sheet2.xml.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" Target="../drawings/drawing1.xml"/></Relationships>'],
+      ['xl/drawings/drawing1.xml', drawing],
+      ['xl/drawings/_rels/drawing1.xml.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' + charts.map((c, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart" Target="../charts/chart${i + 1}.xml"/>`).join('') + '</Relationships>']);
+    charts.forEach((c, i) => files.push(['xl/charts/chart' + (i + 1) + '.xml', c]));
+  }
   // sharedStrings 最後產生（上面產生儲存格時才收集完字串）
   files.push(['xl/sharedStrings.xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="' + sst.length + '" uniqueCount="' + sst.length + '">' + sst.map(v => '<si><t xml:space="preserve">' + XML_ESC(v) + '</t></si>').join('') + '</sst>']);
   return zipStore(files);
@@ -1212,7 +1344,7 @@ async function exportHist() {
   try {
     const r = await call('GET', { action: 'history', detail: '1' });
     if (!r.rows.length) { toast('還沒有紀錄可以匯出'); return; }
-    const blob = buildXlsx(r.rows, r.details);
+    const blob = buildXlsx(r.rows, r.details, r.assets, r.assetFx);
     const name = '持股市值紀錄_' + r.rows[r.rows.length - 1].date + '.xlsx';
     const file = new File([blob], name, { type: blob.type });
     // 手機：開分享面板（可存到「檔案」或直接用 Numbers／Excel 開）；電腦：直接下載
@@ -1231,6 +1363,188 @@ async function exportHist() {
   } finally { b.disabled = false; b.textContent = label; }
 }
 $('#btnExport').addEventListener('click', exportHist);
+
+/* ================= 資產負債 ================= */
+const A_TYPES = [
+  { k: '未上市', label: '未上市股票', color: 'var(--c-unl)', inst: '發行公司／券商', amount: '', cost: '投入成本', costHint: '買進的總金額（原幣），用來算帳面損益' },
+  { k: '保險', label: '保險', color: 'var(--c-ins)', inst: '保險公司', amount: '保單價值（解約金）', amountHint: '保險公司 App 或年度通知書上的保單價值準備金、解約金或帳戶價值', cost: '累計已繳保費', costHint: '選填，用來算帳面損益' },
+  { k: '存款', label: '存款', color: 'var(--c-dep)', inst: '銀行', amount: '存款餘額', amountHint: '活存、定存、外幣帳戶都可以，各筆分開記比較好更新' },
+  { k: '貸款', label: '貸款', color: 'var(--c-loan)', inst: '銀行', amount: '剩餘本金', amountHint: '還沒還的本金（填正數，會從淨資產扣掉）' },
+];
+const CUR_NAME = { TWD: '新台幣', USD: '美元', JPY: '日圓', CNY: '人民幣', AUD: '澳幣', EUR: '歐元', HKD: '港幣', GBP: '英鎊' };
+const tpeToday = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Taipei', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+async function refreshAssets(force) {
+  if (!cfg.url || loadingAssets) return;
+  if (!force && assets && Date.now() - lastAssetsAt < 10 * 60e3) return;
+  loadingAssets = true;
+  try {
+    const r = await call('GET', { action: 'assets' });
+    assets = { assets: r.assets, fx: r.fx, notice: r.notice, fetchedAt: Date.now() }; LS.set('assets', assets);
+    assetsError = null; lastAssetsAt = Date.now();
+  } catch (e) {
+    assetsError = /未知的動作/.test(e.message) ? '後端還是舊版：請把新的 Code.gs 貼到 Apps Script，執行 setup，並部署新版本' : '資產讀取失敗：' + e.message;
+  } finally { loadingAssets = false; renderAssets(); }
+}
+function assetVal(a) { return a.type === '未上市' && a.shares != null && a.price != null ? a.shares * a.price : (a.amount || 0); }
+/** 每筆資產換成台幣；匯率取不到的回傳 null */
+function assetTwd(a) {
+  const fx = assets && assets.fx || {};
+  const r = a.cur === 'TWD' ? 1 : fx[a.cur] || (a.cur === 'USD' && ((data && data.fx && data.fx.rate) || (lastFx && lastFx.rate))) || null;
+  return r ? assetVal(a) * r : null;
+}
+function netWorth() {
+  const c = compute();
+  const t = { stock: c ? c.sum.mv : 0, stockN: data ? data.holdings.length : 0, unl: 0, ins: 0, dep: 0, loan: 0, missing: 0 };
+  const key = { '未上市': 'unl', '保險': 'ins', '存款': 'dep', '貸款': 'loan' };
+  (assets ? assets.assets : []).forEach(a => { const v = assetTwd(a); if (v == null) t.missing++; else t[key[a.type]] += v; });
+  t.assets = t.stock + t.unl + t.ins + t.dep;
+  t.net = t.assets - t.loan;
+  return t;
+}
+function renderAssets() {
+  const box = $('#nwBox'), list = $('#assetList');
+  if (!box) return;
+  box.replaceChildren(); list.replaceChildren();
+  $('#assetsUpdated').textContent = loadingAssets ? '更新中…' : '';
+  if (!cfg.url) { box.append(el('div', { class: 'empty' }, el('p', null, '設定連線後就能記錄未上市股票、保險、存款與貸款'))); return; }
+  if (!assets) { box.append(assetsError ? el('div', { class: 'notice err' }, assetsError) : el('div', { class: 'empty' }, el('p', null, loadingAssets ? '載入中…' : '尚未讀取'))); return; }
+  const t = netWorth();
+  box.append(el('div', { class: 'nw-label' }, '淨資產（台幣）'),
+    el('div', { class: 'nw-total' }, el('small', null, 'NT$'), fmtSigned0(t.net)),
+    el('div', { class: 'nw-sub' }, el('span', null, '總資產 ', el('b', null, NF0.format(Math.round(t.assets)))), el('span', null, '總負債 ', el('b', null, t.loan ? '−' + NF0.format(Math.round(t.loan)) : '0'))));
+  // 資產組成（不含負債）
+  const parts = [['上市櫃股票', t.stock, 'var(--c-stock)'], ['未上市股票', t.unl, 'var(--c-unl)'], ['保險', t.ins, 'var(--c-ins)'], ['存款', t.dep, 'var(--c-dep)']].filter(p => p[1] > 0);
+  if (t.assets > 0) {
+    const bar = el('div', { class: 'nw-bar', role: 'img', 'aria-label': '資產組成：' + parts.map(p => p[0] + ' ' + (p[1] / t.assets * 100).toFixed(0) + '%').join('、') });
+    parts.forEach(p => { const sp = el('span', { title: p[0] + ' ' + (p[1] / t.assets * 100).toFixed(1) + '%' }); sp.style.flex = String(p[1] / t.assets); sp.style.background = p[2]; bar.append(sp); });
+    box.append(bar);
+    const lg = el('div', { class: 'nw-legend' });
+    parts.forEach(p => { const i = el('i'); i.style.background = p[2]; lg.append(el('span', null, i, p[0], el('b', null, (p[1] / t.assets * 100).toFixed(1) + '%'))); });
+    if (t.loan > 0) { const i = el('i'); i.style.background = 'var(--c-loan)'; lg.append(el('span', null, i, '負債比', el('b', null, (t.loan / t.assets * 100).toFixed(1) + '%'))); }
+    box.append(lg);
+  }
+  if (assetsError) box.append(el('div', { class: 'notice err', style: 'margin:10px 0 0' }, assetsError + '（目前顯示上次的資料）'));
+  if (t.missing) box.append(el('div', { class: 'notice warn', style: 'margin:10px 0 0' }, t.missing + ' 筆外幣資產的匯率暫時取不到，未計入淨資產。'));
+  if (assets.notice) box.append(el('div', { class: 'notice warn', style: 'margin:10px 0 0' }, assets.notice));
+  // 上市櫃股票（從持倉自動計算）
+  list.append(el('div', { class: 'asec' },
+    el('div', { class: 'asec-h' }, el('h3', null, (() => { const i = el('i'); i.style.background = 'var(--c-stock)'; return i; })(), '上市櫃股票'), el('span', { class: 'sum' }, NF0.format(Math.round(t.stock)))),
+    el('button', { class: 'arow', type: 'button', onclick: () => selectTab('hold') },
+      el('span', { class: 'an' }, '持倉 ' + t.stockN + ' 檔', el('small', null, '依即時報價自動計算')), el('span', { class: 'av' }, ''),
+      el('span', { class: 'as' }, '在「持倉」分頁管理'), el('span', { class: 'ao' }, ''))));
+  const today = tpeToday();
+  A_TYPES.forEach(T => {
+    const items = assets.assets.filter(a => a.type === T.k);
+    const sum = items.reduce((x, a) => x + (assetTwd(a) || 0), 0);
+    const ic = el('i'); ic.style.background = T.color;
+    const sec = el('div', { class: 'asec' },
+      el('div', { class: 'asec-h' }, el('h3', null, ic, T.label),
+        el('span', { class: 'sum' }, items.length ? (T.k === '貸款' ? '−' : '') + NF0.format(Math.round(sum)) : ''),
+        el('button', { class: 'add', type: 'button', 'aria-label': '新增' + T.label, onclick: () => openAsset(null, T.k) }, '＋')));
+    if (!items.length) sec.append(el('div', { class: 'aempty' }, '還沒有' + T.label + '。按「＋」新增。'));
+    items.slice().sort((a, b) => (assetTwd(b) || 0) - (assetTwd(a) || 0)).forEach(a => {
+      const v = assetVal(a), tw = assetTwd(a), neg = a.type === '貸款';
+      const subParts = [];
+      if (a.type === '未上市') subParts.push(fmtShares(a.shares) + ' 股 × ' + fmtPrice(a.price));
+      if ((a.type === '存款' || a.type === '貸款') && a.rate != null) subParts.push('年利率 ' + a.rate + '%');
+      if (a.type === '貸款' && a.monthly) subParts.push('每月還 ' + NF0.format(a.monthly));
+      let gain = null;
+      if ((a.type === '未上市' || a.type === '保險') && a.cost > 0) {
+        const g = v - a.cost;
+        gain = el('span', { class: cls(g) }, (a.type === '保險' ? '帳面 ' : '損益 ') + (g > 0 ? '+' : g < 0 ? '−' : '') + NF0.format(Math.abs(Math.round(g))) + '（' + pct(g / a.cost) + '）');
+      }
+      const age = a.updated ? Math.round((isoMs(today) - isoMs(a.updated)) / 864e5) : null;
+      const upd = a.updated ? el('span', { class: age > 90 ? 'stale' : '' }, age > 90 ? '已 ' + age + ' 天未更新' : (+a.updated.slice(5, 7)) + '/' + (+a.updated.slice(8)) + ' 更新') : null;
+      const sub = el('span', { class: 'as' });
+      [subParts.join('・'), gain, upd].filter(Boolean).forEach((x, i) => { if (i) sub.append('・'); sub.append(typeof x === 'string' ? el('span', null, x) : x); });
+      sec.append(el('button', { class: 'arow', type: 'button', onclick: () => openAsset(a), 'aria-label': '編輯 ' + a.name },
+        el('span', { class: 'an' }, a.name, a.inst ? el('small', null, a.inst) : null),
+        el('span', { class: 'av' }, tw == null ? '匯率缺' : (neg ? '−' : '') + NF0.format(Math.round(tw))),
+        sub,
+        el('span', { class: 'ao' }, a.cur !== 'TWD' ? (CUR_NAME[a.cur] || a.cur) + ' ' + (neg ? '−' : '') + NF2.format(v).replace(/\.00$/, '') : '')));
+    });
+    list.append(sec);
+  });
+}
+
+/* ---- 新增／編輯 ---- */
+let editingAsset = null, aDateTouched = false;
+function aType() { const r = document.querySelector('input[name="aType"]:checked'); return r ? r.value : '存款'; }
+function applyAssetType() {
+  const T = A_TYPES.find(x => x.k === aType());
+  const unl = T.k === '未上市';
+  $('#aUnlFields').classList.toggle('hidden', !unl);
+  $('#aAmountField').classList.toggle('hidden', unl);
+  $('#aAmountLabel').textContent = T.amount || '金額';
+  $('#aAmountHint').textContent = T.amountHint || '';
+  $('#aCostField').classList.toggle('hidden', !(T.k === '未上市' || T.k === '保險'));
+  $('#aCostLabel').textContent = T.cost || '成本';
+  $('#aCostHint').textContent = T.costHint || '';
+  $('#aRateField').classList.toggle('hidden', !(T.k === '存款' || T.k === '貸款'));
+  $('#aMonthlyField').classList.toggle('hidden', T.k !== '貸款');
+  $('#aInstLabel').textContent = T.inst;
+  $('#aName').placeholder = { '未上市': '例如：某某科技', '保險': '例如：美元利變終身壽險', '存款': '例如：薪轉活存', '貸款': '例如：房貸' }[T.k];
+}
+function openAsset(a, presetType) {
+  editingAsset = a ? a.id : null; aDateTouched = false;
+  $('#assetTitle').textContent = a ? '編輯 ' + a.name : '新增' + (presetType ? (A_TYPES.find(x => x.k === presetType) || {}).label || '' : '資產');
+  const type = a ? a.type : presetType || '存款';
+  document.querySelectorAll('input[name="aType"]').forEach(r => { r.checked = r.value === type; r.disabled = !!a; });
+  const v = (x) => x == null ? '' : String(x);
+  $('#aName').value = a ? a.name : ''; $('#aInst').value = a ? a.inst : ''; $('#aCur').value = a ? a.cur : 'TWD';
+  $('#aShares').value = a ? v(a.shares) : ''; $('#aPrice').value = a ? v(a.price) : '';
+  $('#aAmount').value = a ? v(a.amount) : ''; $('#aCost').value = a ? v(a.cost) : '';
+  $('#aRate').value = a ? v(a.rate) : ''; $('#aMonthly').value = a ? v(a.monthly) : '';
+  $('#aUpdated').value = a && a.updated ? a.updated : tpeToday(); $('#aNote').value = a ? a.note : '';
+  $('#btnADelete').classList.toggle('hidden', !a);
+  ['#eAName', '#eAShares', '#eAPrice', '#eAAmount', '#eACost', '#eARate', '#eAForm'].forEach(i => showErr(i, ''));
+  applyAssetType();
+  openDlg($('#dlgAsset'));
+  if (!a) setTimeout(() => $('#aName').focus(), 50);
+}
+document.querySelectorAll('input[name="aType"]').forEach(r => r.addEventListener('change', applyAssetType));
+$('#aUpdated').addEventListener('input', () => { aDateTouched = true; });
+['#aAmount', '#aShares', '#aPrice'].forEach(id => $(id).addEventListener('input', () => { if (editingAsset && !aDateTouched) $('#aUpdated').value = tpeToday(); }));
+$('#formAsset').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const type = aType();
+  const opt = (id) => { const t = $(id).value.trim(); return t === '' ? null : parseNum(t); };
+  const a = { id: editingAsset, type, name: $('#aName').value.trim(), inst: $('#aInst').value.trim(), cur: $('#aCur').value,
+    shares: opt('#aShares'), price: opt('#aPrice'), amount: opt('#aAmount'), cost: opt('#aCost'), rate: opt('#aRate'), monthly: opt('#aMonthly'),
+    updated: $('#aUpdated').value || tpeToday(), note: $('#aNote').value.trim() };
+  let bad = false;
+  const chk = (cond, id, msg) => { showErr(id, cond ? '' : msg); if (!cond) bad = true; };
+  chk(!!a.name, '#eAName', '請填名稱');
+  if (type === '未上市') { chk(a.shares > 0, '#eAShares', '請填大於 0 的股數'); chk(a.price >= 0, '#eAPrice', '請填每股參考價'); }
+  else chk(a.amount >= 0, '#eAAmount', '請填' + ((A_TYPES.find(x => x.k === type) || {}).amount || '金額'));
+  if (type === '未上市' || type === '保險') chk(a.cost == null || a.cost >= 0, '#eACost', '請填 0 以上的數字');
+  if (type === '存款' || type === '貸款') chk(a.rate == null || (a.rate >= 0 && a.rate <= 100), '#eARate', '請填 0～100');
+  if (bad) return;
+  if (type !== '未上市') { a.shares = null; a.price = null; }
+  if (type === '未上市') a.amount = null;
+  if (!(type === '未上市' || type === '保險')) a.cost = null;
+  if (!(type === '存款' || type === '貸款')) a.rate = null;
+  if (type !== '貸款') a.monthly = null;
+  const b = $('#btnASave'); b.disabled = true; b.textContent = '儲存中…'; showErr('#eAForm', '');
+  try {
+    await call('POST', null, { action: 'assetUpsert', asset: a });
+    closeDlg($('#dlgAsset'));
+    toast(editingAsset ? '已儲存變更' : '已新增 ' + a.name);
+    await refreshAssets(true);
+  } catch (e) { showErr('#eAForm', /未知的動作/.test(e.message) ? '後端還是舊版：請先更新 Code.gs 並部署新版本' : e.message); }
+  finally { b.disabled = false; b.textContent = '儲存'; }
+});
+$('#btnADelete').addEventListener('click', async () => {
+  const a = assets && assets.assets.find(x => x.id === editingAsset); if (!a) return;
+  if (!confirm('確定要刪除「' + a.name + '」？試算表裡的這一列也會刪掉。')) return;
+  const b = $('#btnADelete'); b.disabled = true;
+  try {
+    await call('POST', null, { action: 'assetDelete', id: a.id });
+    closeDlg($('#dlgAsset')); toast('已刪除 ' + a.name);
+    await refreshAssets(true);
+  } catch (e) { showErr('#eAForm', e.message); }
+  finally { b.disabled = false; }
+});
 
 /* ================= 提示 ================= */
 function renderNotices(c) {
@@ -1254,6 +1568,7 @@ function renderAll() {
   $('#btnRefresh').classList.toggle('spin', loadingData || loadingNews || loadingEvents);
   renderEvents();
   renderHist();
+  renderAssets();
   $('#sortSel').value = cfg.sort;
 }
 
@@ -1308,7 +1623,7 @@ async function refreshSpark(force) {
 }
 async function refreshAll(force) {
   await refreshData();
-  const jobs = [refreshSpark(force), refreshHist(force)];
+  const jobs = [refreshSpark(force), refreshHist(force), refreshAssets(force)];
   if (force || Date.now() - lastNewsAt > (marketOpen() ? 10 : 30) * 60e3) jobs.push(refreshNews());
   if (force || Date.now() - lastEventsAt > 3 * 3600e3) jobs.push(refreshEvents());
   await Promise.all(jobs);
@@ -1822,7 +2137,7 @@ $('#formSettings').addEventListener('submit', async (ev) => {
   cfg = Object.assign({}, cfg, c, { fees: $('#sFees').checked, discount: disc, days: +$('#sDays').value, en: $('#sEn').checked, strict: $('#sStrict').checked, color: $('#sColor').value });
   LS.set('cfg', cfg);
   closeDlg($('#dlgSettings'));
-  if (changedConn) { data = null; news = null; events = null; hist = null; LS.del('data'); LS.del('news'); LS.del('events'); LS.del('hist'); dataError = null; dataErrorCode = null; }
+  if (changedConn) { data = null; news = null; events = null; hist = null; assets = null; LS.del('data'); LS.del('news'); LS.del('events'); LS.del('hist'); LS.del('assets'); dataError = null; dataErrorCode = null; }
   if (changedNews) { news = null; LS.del('news'); }
   renderAll();
   syncPnlSettings();
@@ -1836,17 +2151,19 @@ $('#btnRefresh').addEventListener('click', () => refreshAll(true));
 $('#fab').addEventListener('click', () => openEdit());
 $('#sortSel').addEventListener('change', e => { cfg.sort = e.target.value; LS.set('cfg', cfg); renderAll(); });
 function selectTab(which) {
-  if (!['hold', 'news', 'hist', 'events'].includes(which)) which = 'hold';
-  [['hold', '#tabHold', '#panel-hold'], ['news', '#tabNews', '#panel-news'], ['hist', '#tabHist', '#panel-hist'], ['events', '#tabEvents', '#panel-events']].forEach(([k, tab, panel]) => {
+  if (!['hold', 'news', 'hist', 'assets', 'events'].includes(which)) which = 'hold';
+  [['hold', '#tabHold', '#panel-hold'], ['news', '#tabNews', '#panel-news'], ['hist', '#tabHist', '#panel-hist'], ['assets', '#tabAssets', '#panel-assets'], ['events', '#tabEvents', '#panel-events']].forEach(([k, tab, panel]) => {
     $(tab).setAttribute('aria-selected', String(k === which));
     $(panel).classList.toggle('hidden', k !== which);
   });
   LS.set('tab', which);
+  document.body.dataset.tab = which;
 }
 $('#tabHold').addEventListener('click', () => selectTab('hold'));
 $('#tabNews').addEventListener('click', () => selectTab('news'));
 $('#tabEvents').addEventListener('click', () => selectTab('events'));
 $('#tabHist').addEventListener('click', () => { selectTab('hist'); renderHist(); refreshHist(false); });
+$('#tabAssets').addEventListener('click', () => { selectTab('assets'); renderAssets(); refreshAssets(false); });
 
 /* ================= 啟動 ================= */
 (function init() {
@@ -1858,7 +2175,7 @@ $('#tabHist').addEventListener('click', () => { selectTab('hist'); renderHist();
     if (s && validUrl(s.url)) {
       const changed = s.url !== cfg.url || s.token !== cfg.token;
       cfg = Object.assign({}, cfg, s); LS.set('cfg', cfg);
-      if (changed) { data = null; news = null; events = null; hist = null; LS.del('data'); LS.del('news'); LS.del('events'); LS.del('hist'); }
+      if (changed) { data = null; news = null; events = null; hist = null; assets = null; LS.del('data'); LS.del('news'); LS.del('events'); LS.del('hist'); LS.del('assets'); }
       setTimeout(() => toast('已套用設定碼'), 300);
     }
   }

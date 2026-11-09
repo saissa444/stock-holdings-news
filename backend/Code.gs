@@ -7,6 +7,7 @@
  *   3. 美股報價：Yahoo Finance（query1 → query2 備援）
  *   4. 美元兌台幣匯率：Yahoo（TWD=X）→ open.er-api.com 備援
  *   5. 每檔股票的新聞：Google 新聞 RSS
+ *   9. 其他資產：未上市股票、保險、存款、貸款（「其他資產」工作表，手動維護），每日紀錄同時記下淨資產
  *   8. 每日市值：台北時間每天 13:30（等收盤價公布）記錄總市值與每檔明細到「每日市值」「市值明細」工作表
  *   7. 走勢圖：Yahoo 分鐘線＋每分鐘排程紀錄的證交所報價（台股 Yahoo 延遲 20 分鐘，用紀錄補上）
  *   6. 重要時程：台股法說會（公開資訊觀測站）、美股財報日與除息日（Yahoo）、
@@ -18,7 +19,7 @@
 var SHEET_HOLD = '持倉';
 var SHEET_INFO = '說明';
 var HEADERS = ['代號', '市場', '名稱', '股數', '平均成本', '新聞關鍵字', '備註'];
-var VERSION = '1.4.0';
+var VERSION = '1.5.0';
 
 var CACHE_QUOTE_SEC = 15;        // 開盤中報價快取
 var CACHE_QUOTE_CLOSED_SEC = 600; // 收盤後報價快取（價格不會變，省額度）
@@ -57,6 +58,7 @@ function setup() {
   info.setColumnWidth(1, 110);
   info.setColumnWidth(2, 520);
   ensureDailySheets_();
+  assetSheet_();
   var rec = '';
   try { ensureRecorder_(); rec = '已建立盤中紀錄排程（每分鐘）。'; }
   catch (e) { rec = '盤中紀錄排程建立失敗：' + (e && e.message) + '。台股當日走勢最近 20 分鐘會缺資料。'; }
@@ -115,6 +117,7 @@ function doGet(e) {
       case 'live': return live_(String(p.code || ''));
       case 'spark': return spark_();
       case 'history': return history_(p.detail === '1');
+      case 'assets': return assetsData_();
       case 'diagnose': return diagnose_();
       case 'ping': return { version: VERSION };
       default: throw userError_('未知的動作：' + p.action);
@@ -135,6 +138,8 @@ function doPost(e) {
         case 'upsert': return upsertHolding_(body.holding || {}, body.originalCode);
         case 'delete': return deleteHolding_(String(body.code || ''));
         case 'settings': return saveSettings_(body.settings || {});
+        case 'assetUpsert': return upsertAsset_(body.asset || {});
+        case 'assetDelete': return deleteAsset_(String(body.id || ''));
         default: throw userError_('未知的動作：' + body.action);
       }
     } finally {
@@ -1621,7 +1626,8 @@ function recorderStatus_() {
 
 var SHEET_DAILY = '每日市值';
 var SHEET_DAILY_DET = '市值明細';
-var DAILY_HEADERS = ['日期', '紀錄時間', '總市值', '台股市值', '美股市值(台幣)', '美股市值(美元)', '美元匯率', '總成本', '未實現損益', '報酬率', '市值變化', '市值變化%', '損益變化', '持股檔數', '備註'];
+var DAILY_HEADERS = ['日期', '紀錄時間', '總市值', '台股市值', '美股市值(台幣)', '美股市值(美元)', '美元匯率', '總成本', '未實現損益', '報酬率', '市值變化', '市值變化%', '損益變化', '持股檔數', '備註',
+  '未上市股票', '保險', '存款', '貸款', '淨資產', '淨資產變化'];
 var DET_HEADERS = ['日期', '代號', '名稱', '市場', '股數', '價格', '幣別', '市值(原幣)', '市值(台幣)', '成本(台幣)', '未實現損益(台幣)', '報價時間', '備註'];
 var SNAP_MIN = 13 * 60 + 31;     // 13:31 起記錄（13:30 收盤撮合結果公布後）
 var SNAP_WAIT_UNTIL = 13 * 60 + 45;   // 收盤價最晚等到 13:45，之後就用拿得到的價格
@@ -1642,6 +1648,13 @@ function ensureDailySheets_() {
     d.getRange('K:K').setNumberFormat('[Red]"▲"#,##0;[Green]"▼"#,##0;0');
     d.getRange('M:M').setNumberFormat('[Red]"▲"#,##0;[Green]"▼"#,##0;0');
     d.getRange('L:L').setNumberFormat('[Red]"▲"0.00%;[Green]"▼"0.00%;0.00%');
+  }
+  // 舊版建立的表只有 15 欄：補上淨資產欄位（前 15 欄名稱不變）
+  var head = d.getRange(1, 1, 1, DAILY_HEADERS.length).getValues()[0];
+  if (String(head[DAILY_HEADERS.length - 1]) !== DAILY_HEADERS[DAILY_HEADERS.length - 1]) {
+    d.getRange(1, 1, 1, DAILY_HEADERS.length).setValues([DAILY_HEADERS]).setFontWeight('bold');
+    rangeCols_(d, 'P:T').forEach(function (c) { d.getRange(c).setNumberFormat('#,##0'); });
+    d.getRange('U:U').setNumberFormat('[Red]"▲"#,##0;[Green]"▼"#,##0;0');
   }
   var t = ss.getSheetByName(SHEET_DAILY_DET);
   if (!t) {
@@ -1687,7 +1700,7 @@ function lastDaily_(sh) {
   var last = sh.getLastRow();
   if (last < 2) return null;
   var r = sh.getRange(last, 1, 1, DAILY_HEADERS.length).getValues()[0];
-  return { date: String(r[0]), total: Number(r[2]) || 0, pnl: Number(r[8]) || 0, fx: Number(r[6]) || null };
+  return { date: String(r[0]), total: Number(r[2]) || 0, pnl: Number(r[8]) || 0, fx: Number(r[6]) || null, net: r[19] === '' || r[19] == null ? null : Number(r[19]) };
 }
 function detailsOf_(sh, date, maxRows) {
   var last = sh.getLastRow();
@@ -1697,6 +1710,7 @@ function detailsOf_(sh, date, maxRows) {
   var out = {};
   rows.forEach(function (r) {
     if (String(r[0]) !== date) return;
+    if (r[3] !== '台股' && r[3] !== '美股') return;   // 其他資產的列不算持股
     var code = typeof r[1] === 'number' ? String(r[1]).padStart(4, '0') : String(r[1]);
     out[code] = { shares: Number(r[4]), price: Number(r[5]) };
   });
@@ -1719,8 +1733,9 @@ function snapshotDaily_() {
     var prev = lastDaily_(sh.daily);
     if (prev && prev.date === day) { cachePut_('snap:' + day, 1, 21600); return { skipped: 'done' }; }
     var holdings = readHoldings_();
-    if (!holdings.length) return { skipped: 'empty' };
-    var quotes = getQuotes_(holdings, 60);
+    var assets = readAssets_();
+    if (!holdings.length && !assets.length) return { skipped: 'empty' };
+    var quotes = holdings.length ? getQuotes_(holdings, 60) : {};
     var notes = [];
     var tw = holdings.filter(function (h) { return h.market === 'TW'; });
     var twToday = tw.some(function (h) { var q = quotes[h.code]; return q && !q.error && q.time && tpeParts_(q.time).iso === day; });
@@ -1760,7 +1775,19 @@ function snapshotDaily_() {
       det.push([day, h.code, h.name || (q && q.name ? (h.market === 'US' ? enCore_(q.name) : q.name) : ''), h.market === 'TW' ? '台股' : '美股', h.shares, price, h.market === 'TW' ? 'TWD' : 'USD',
         Math.round(mvL * 100) / 100, Math.round(mvT), costL != null ? Math.round(costL * rate) : '', pnlT != null ? Math.round(pnlT) : '', qtime, dnote]);
     });
-    if (!det.length) return { skipped: 'noquotes' };
+    if (holdings.length && !det.length) return { skipped: 'noquotes' };
+    // 其他資產：以記錄當下的匯率換算台幣
+    var fxm = assetFx_(assets, fx);
+    var at = assetTotals_(assets, fxm);
+    assets.forEach(function (a) {
+      var v = assetValue_(a), rate = fxm[a.cur];
+      if (!rate) return;
+      var sign = a.type === '貸款' ? -1 : 1;
+      det.push([day, '', a.name, a.type, a.type === '未上市' ? a.shares : '', a.type === '未上市' ? a.price : '', a.cur,
+        Math.round(sign * v * 100) / 100, Math.round(sign * v * rate), a.cost != null && a.type !== '貸款' ? Math.round(a.cost * rate) : '',
+        a.cost != null && (a.type === '未上市' || a.type === '保險') ? Math.round((v - a.cost) * rate) : '', a.updated ? '更新 ' + a.updated : '', a.inst || '']);
+    });
+    if (at.missing.length) notes.push(at.missing.join('、') + ' 匯率取不到，未計入淨資產');
     if (carried.length) notes.push(carried.length + ' 檔缺報價，沿用前一日價格');
     if (missing.length) notes.push(missing.length + ' 檔沒有報價，未計入');
     // 持股變動（新增、刪除、股數改變）：市值變化會包含買賣，看「損益變化」才是漲跌
@@ -1773,7 +1800,9 @@ function snapshotDaily_() {
     var row = [day, hm_(now), total, Math.round(tot.tw), Math.round(tot.usT), Math.round(tot.usUsd * 100) / 100, fx ? Math.round(fx * 1000) / 1000 : '',
       cost, pnl, cost ? Math.round(pnl / cost * 1e6) / 1e6 : '',
       prev ? total - prev.total : '', prev && prev.total ? Math.round((total - prev.total) / prev.total * 1e6) / 1e6 : '', prev ? pnl - prev.pnl : '',
-      tot.n, notes.join('；')];
+      tot.n, notes.join('；'),
+      at.unl, at.ins, at.dep, at.loan, total + at.unl + at.ins + at.dep - at.loan,
+      prev && prev.net != null ? (total + at.unl + at.ins + at.dep - at.loan) - prev.net : ''];
     sh.daily.getRange(sh.daily.getLastRow() + 1, 1, 1, row.length).setValues([row]);
     sh.det.getRange(sh.det.getLastRow() + 1, 1, det.length, DET_HEADERS.length).setValues(det);
     cachePut_('snap:' + day, 1, 21600);
@@ -1787,9 +1816,11 @@ function history_(withDetail) {
   var rows = last < 2 ? [] : sh.daily.getRange(2, 1, last - 1, DAILY_HEADERS.length).getValues().map(function (r) {
     var num = function (v) { return v === '' || v == null ? null : Number(v); };
     return { date: String(r[0]), time: String(r[1]), total: num(r[2]), tw: num(r[3]), usT: num(r[4]), usUsd: num(r[5]), fx: num(r[6]),
-      cost: num(r[7]), pnl: num(r[8]), ret: num(r[9]), dMv: num(r[10]), dPct: num(r[11]), dPnl: num(r[12]), count: num(r[13]), note: String(r[14] || '') };
+      cost: num(r[7]), pnl: num(r[8]), ret: num(r[9]), dMv: num(r[10]), dPct: num(r[11]), dPnl: num(r[12]), count: num(r[13]), note: String(r[14] || ''),
+      unl: num(r[15]), ins: num(r[16]), dep: num(r[17]), loan: num(r[18]), net: num(r[19]), dNet: num(r[20]) };
   }).filter(function (r) { return /^\d{4}-\d{2}-\d{2}$/.test(r.date) && r.total != null; });
   var out = { rows: rows, settings: pnlSettings_(), snapTime: '13:30' };
+  if (withDetail) { out.assets = readAssets_(); out.assets.forEach(function (x) { delete x.row; }); out.assetFx = assetFx_(out.assets, null); }
   if (withDetail) {
     var dl = sh.det.getLastRow();
     out.details = dl < 2 ? [] : sh.det.getRange(2, 1, dl - 1, DET_HEADERS.length).getValues().map(function (r) {
@@ -1797,4 +1828,160 @@ function history_(withDetail) {
     });
   }
   return out;
+}
+
+/* ===================== 其他資產（未上市、保險、存款、貸款） ===================== */
+
+var SHEET_ASSETS = '其他資產';
+var ASSET_HEADERS = ['ID', '類別', '名稱', '機構', '幣別', '金額', '股數', '每股價格', '成本', '利率(%)', '每月還款', '更新日期', '備註'];
+var ASSET_TYPES = ['未上市', '保險', '存款', '貸款'];
+var ASSET_CURS = ['TWD', 'USD', 'JPY', 'CNY', 'AUD', 'EUR', 'HKD', 'GBP'];
+
+function assetSheet_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sh = ss.getSheetByName(SHEET_ASSETS);
+  if (!sh) {
+    sh = ss.insertSheet(SHEET_ASSETS);
+    ['A:A', 'L:L'].forEach(function (c) { sh.getRange(c).setNumberFormat('@'); });
+    sh.getRange(1, 1, 1, ASSET_HEADERS.length).setValues([ASSET_HEADERS]).setFontWeight('bold');
+    sh.setFrozenRows(1);
+    ['F:F', 'I:I', 'K:K'].forEach(function (c) { sh.getRange(c).setNumberFormat('#,##0.##'); });
+  }
+  return sh;
+}
+
+function cellDate_(v) {
+  if (Object.prototype.toString.call(v) === '[object Date]' && isFinite(v.getTime())) return ymd_(new Date(v.getTime() + 8 * 3600e3));
+  var s = String(v || '').trim().replace(/\//g, '-');
+  var m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  return m ? m[1] + '-' + ('0' + m[2]).slice(-2) + '-' + ('0' + m[3]).slice(-2) : '';
+}
+
+/** 讀取其他資產。試算表也可以直接手動輸入（類別寫「未上市／保險／存款／貸款」），沒有 ID 的列會自動補上 */
+function readAssets_() {
+  var sh = assetSheet_();
+  var last = sh.getLastRow();
+  if (last < 2) return [];
+  var vals = sh.getRange(2, 1, last - 1, ASSET_HEADERS.length).getValues();
+  var out = [], fix = [];
+  vals.forEach(function (r, i) {
+    var type = String(r[1] || '').trim().replace('未上市股票', '未上市').replace('保單', '保險').replace('借款', '貸款');
+    if (ASSET_TYPES.indexOf(type) < 0) return;
+    var name = String(r[2] || '').trim();
+    if (!name) return;
+    var id = String(r[0] || '').trim();
+    if (!id) { id = Utilities.getUuid().replace(/-/g, '').slice(0, 12); fix.push([i + 2, id]); }
+    var cur = String(r[4] || 'TWD').trim().toUpperCase();
+    if (cur === 'NTD' || cur === '台幣' || cur === '新台幣' || cur === '') cur = 'TWD';
+    if (cur === '美元' || cur === '美金') cur = 'USD';
+    if (ASSET_CURS.indexOf(cur) < 0) cur = 'TWD';
+    var n = function (v) { var x = toNumber_(v); return isNaN(x) ? null : x; };
+    out.push({ id: id, type: type, name: name, inst: String(r[3] || '').trim(), cur: cur, amount: n(r[5]),
+      shares: n(r[6]), price: n(r[7]), cost: n(r[8]), rate: n(r[9]), monthly: n(r[10]), updated: cellDate_(r[11]), note: String(r[12] || '').trim(), row: i + 2 });
+  });
+  fix.forEach(function (f) { sh.getRange(f[0], 1).setValue(f[1]); });
+  return out;
+}
+
+/** 原幣價值：未上市＝股數×每股價格；其他＝金額（貸款為剩餘本金，正數） */
+function assetValue_(a) {
+  if (a.type === '未上市' && a.shares != null && a.price != null) return a.shares * a.price;
+  return a.amount || 0;
+}
+
+/** 其他資產用到的幣別 → 台幣匯率 {TWD:1, USD:..., ...}；取不到的不放 */
+function assetFx_(assets, usdRate) {
+  var out = { TWD: 1 };
+  var curs = {};
+  assets.forEach(function (a) { if (a.cur !== 'TWD') curs[a.cur] = 1; });
+  var need = [];
+  Object.keys(curs).forEach(function (c) {
+    if (c === 'USD') {
+      var r = usdRate;
+      if (!r) { var f = null; try { f = getFx_(); } catch (e) { if (e && e.code === 'quota') QUOTA_NOTICE = e.userMessage; else throw e; } r = f && f.rate; }
+      if (r) out.USD = r;
+      return;
+    }
+    var cached = Number(cacheGet_('fx:' + c + 'TWD'));
+    if (cached > 0) out[c] = cached; else need.push(c);
+  });
+  if (need.length && usage_() + 2 <= BUDGET_STOP) {
+    try {
+      var yb = yahooQuoteBatch_(need.map(function (c) { return c + 'TWD=X'; }));
+      need.forEach(function (c) {
+        var q = yb.quotes[c + 'TWD=X'];
+        if (q && q.price > 0) { out[c] = q.price; cachePut_('fx:' + c + 'TWD', q.price, CACHE_FX_SEC); }
+      });
+      var still = need.filter(function (c) { return !out[c]; });
+      if (still.length) {
+        var res = fetch1_('https://open.er-api.com/v6/latest/USD', { muteHttpExceptions: true });
+        if (res.getResponseCode() === 200) {
+          var rates = JSON.parse(res.getContentText('UTF-8')).rates || {};
+          still.forEach(function (c) {
+            if (rates[c] > 0 && rates.TWD > 0) { out[c] = rates.TWD / rates[c]; cachePut_('fx:' + c + 'TWD', out[c], CACHE_FX_SEC); }
+          });
+        }
+      }
+    } catch (e) { if (e && e.code === 'quota') QUOTA_NOTICE = e.userMessage; else rethrowQuota_(e); }
+  }
+  return out;
+}
+
+function assetTotals_(assets, fxm) {
+  var t = { unl: 0, ins: 0, dep: 0, loan: 0, missing: [] };
+  var key = { '未上市': 'unl', '保險': 'ins', '存款': 'dep', '貸款': 'loan' };
+  assets.forEach(function (a) {
+    var rate = fxm[a.cur];
+    if (!rate) { if (t.missing.indexOf(a.cur) < 0) t.missing.push(a.cur); return; }
+    t[key[a.type]] += assetValue_(a) * rate;
+  });
+  ['unl', 'ins', 'dep', 'loan'].forEach(function (k) { t[k] = Math.round(t[k]); });
+  return t;
+}
+
+function assetsData_() {
+  var assets = readAssets_();
+  var fxm = assetFx_(assets, null);
+  assets.forEach(function (a) { delete a.row; });
+  return { assets: assets, fx: fxm, types: ASSET_TYPES, currencies: ASSET_CURS, notice: QUOTA_NOTICE };
+}
+
+function upsertAsset_(a) {
+  var type = String(a.type || '');
+  if (ASSET_TYPES.indexOf(type) < 0) throw userError_('類別要是：' + ASSET_TYPES.join('、'));
+  var name = String(a.name || '').trim().slice(0, 40);
+  if (!name) throw userError_('請填名稱');
+  var cur = String(a.cur || 'TWD').toUpperCase();
+  if (ASSET_CURS.indexOf(cur) < 0) throw userError_('不支援的幣別：' + cur);
+  var num = function (v) { if (v === '' || v == null) return null; var x = toNumber_(v); return isNaN(x) ? NaN : x; };
+  var amount = num(a.amount), shares = num(a.shares), price = num(a.price), cost = num(a.cost), rate = num(a.rate), monthly = num(a.monthly);
+  if (type === '未上市') {
+    if (!(shares > 0)) throw userError_('股數要是大於 0 的數字');
+    if (!(price >= 0)) throw userError_('每股參考價要是 0 以上的數字');
+    amount = null;
+  } else {
+    if (!(amount >= 0)) throw userError_(type === '貸款' ? '剩餘本金要是 0 以上的數字' : '金額要是 0 以上的數字');
+    shares = null; price = null;
+  }
+  if (cost !== null && !(cost >= 0)) throw userError_('成本要是 0 以上的數字');
+  if (rate !== null && !(rate >= 0 && rate <= 100)) throw userError_('利率請填 0～100 的百分比數字');
+  if (monthly !== null && !(monthly >= 0)) throw userError_('每月還款要是 0 以上的數字');
+  var updated = cellDate_(a.updated) || tpeParts_(Date.now()).iso;
+  var row = [a.id ? String(a.id) : Utilities.getUuid().replace(/-/g, '').slice(0, 12), type, name, String(a.inst || '').trim().slice(0, 40), cur,
+    amount == null ? '' : amount, shares == null ? '' : shares, price == null ? '' : price, cost == null ? '' : cost,
+    rate == null ? '' : rate, monthly == null || type !== '貸款' ? '' : monthly, updated, String(a.note || '').trim().slice(0, 200)];
+  var sh = assetSheet_();
+  sh.getRange('A:A').setNumberFormat('@'); sh.getRange('L:L').setNumberFormat('@');
+  var hit = a.id ? readAssets_().filter(function (x) { return x.id === String(a.id); })[0] : null;
+  if (a.id && !hit) throw userError_('找不到這筆資料（可能已在其他裝置刪除），請重新整理');
+  if (hit) sh.getRange(hit.row, 1, 1, row.length).setValues([row]);
+  else sh.getRange(sh.getLastRow() + 1, 1, 1, row.length).setValues([row]);
+  return { id: row[0] };
+}
+
+function deleteAsset_(id) {
+  var hit = readAssets_().filter(function (x) { return x.id === id; })[0];
+  if (!hit) throw userError_('找不到這筆資料（可能已刪除），請重新整理');
+  assetSheet_().deleteRow(hit.row);
+  return { deleted: id };
 }

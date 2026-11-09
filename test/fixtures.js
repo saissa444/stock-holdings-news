@@ -17,6 +17,8 @@ const YAHOO = {
   'BRK-B': { regularMarketPrice: 489.1, previousClose: 491.0, currency: 'USD', shortName: 'Berkshire Hathaway Inc. New', exchangeName: 'NYQ' },
   'MSFT': { regularMarketPrice: 512.4, previousClose: 509.8, currency: 'USD', shortName: 'Microsoft Corporation', exchangeName: 'NMS' },
   'MU': { regularMarketPrice: 105.2, previousClose: 101.0, currency: 'USD', shortName: 'Micron Technology, Inc.', exchangeName: 'NMS' },
+  'JPYTWD=X': { regularMarketPrice: 0.2012, previousClose: 0.2010, currency: 'TWD', shortName: 'JPY/TWD' },
+  'AUDTWD=X': { regularMarketPrice: 20.15, previousClose: 20.1, currency: 'TWD', shortName: 'AUD/TWD' },
   'TWD=X': { regularMarketPrice: 30.62, previousClose: 30.55, currency: 'TWD', shortName: 'USD/TWD' },
   '2330.TW': { regularMarketPrice: 1084, previousClose: 1070, currency: 'TWD', longName: 'Taiwan Semiconductor Manufacturing Company Limited' },
   '6488.TWO': { regularMarketPrice: 420, previousClose: 415, currency: 'TWD', longName: 'GlobalWafers Co., Ltd.' },
@@ -244,7 +246,7 @@ function makeHandler(state = {}) {
         if (!f || (state.fxYahooDown && sym === 'TWD=X')) return;
         const isTW = /\.TWO?$/.test(sym);
         let price = f.regularMarketPrice;
-        if (state.usDyn && !isTW && sym !== 'TWD=X') { const [, e] = lastTradingSession(usSes, clock(), 0); price = usPrice(sym, Math.min(clock(), e), f.previousClose || f.chartPreviousClose); }
+        if (state.usDyn && !isTW && !/=X$/.test(sym)) { const [, e] = lastTradingSession(usSes, clock(), 0); price = usPrice(sym, Math.min(clock(), e), f.previousClose || f.chartPreviousClose); }
         result.push({ symbol: sym, regularMarketPrice: price, regularMarketPreviousClose: f.previousClose || f.chartPreviousClose,
           regularMarketTime: Math.floor((clock() - (isTW ? 20 * 60e3 : 0)) / 1000), currency: f.currency, shortName: f.shortName, longName: f.longName,
           exchange: isTW ? (sym.endsWith('.TWO') ? 'TWO' : 'TAI') : 'NMS', fullExchangeName: isTW ? 'Taiwan' : 'NasdaqGS' });
@@ -272,7 +274,7 @@ function makeHandler(state = {}) {
     }
     if (u.hostname === 'open.er-api.com') {
       if (state.erDown) return { code: 500, body: '' };
-      return { code: 200, body: JSON.stringify({ result: 'success', time_last_update_unix: Math.floor(now / 1000) - 3600, rates: { USD: 1, TWD: 30.7 } }) };
+      return { code: 200, body: JSON.stringify({ result: 'success', time_last_update_unix: Math.floor(now / 1000) - 3600, rates: { USD: 1, TWD: 30.7, JPY: 152.6, AUD: 1.524, CNY: 7.12, EUR: 0.92, HKD: 7.78, GBP: 0.79 } }) };
     }
     return { code: 404, body: 'unknown host ' + u.hostname };
   };
